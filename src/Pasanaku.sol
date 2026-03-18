@@ -28,7 +28,7 @@ contract Pasanaku is ERC1155, Ownable {
     /*                         CONSTANTS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    uint256 private constant PROTOCOL_FEE = 0;
+    uint256 private constant PROTOCOL_FEE = 0; // TODO: set protocol fee
     uint256 private constant TOKEN_AMOUNT = 1;
     uint256 private constant MAX_PARTICIPANTS_COUNT = 12;
     uint256 private constant DAYS_30 = 60 * 60 * 24 * 30;
@@ -100,7 +100,7 @@ contract Pasanaku is ERC1155, Ownable {
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                    EXTERNAL FUNCTIONS                     */
+    /*                    EXTERNAL FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function create(address asset, address[] calldata participants, uint256 amount) external payable returns (bool) {
@@ -121,17 +121,9 @@ contract Pasanaku is ERC1155, Ownable {
             }
         }
 
-        address[] memory participantsCopy = new address[](participants.length);
-        for (uint256 i; i < participants.length;) {
-            participantsCopy[i] = participants[i];
-            unchecked {
-                ++i;
-            }
-        }
-
         uint256 timestamp = block.timestamp;
         _rotatingSavings[tokenId] = IPasanaku.RotatingSavings({
-            participants: participantsCopy,
+            participants: participants,
             asset: asset,
             amount: amount,
             currentIndex: 0,
@@ -144,7 +136,7 @@ contract Pasanaku is ERC1155, Ownable {
             lastUpdatedAt: timestamp
         });
 
-        emit RotatingSavingsCreated(participantsCopy, asset, amount, tokenId, msg.sender, timestamp);
+        emit RotatingSavingsCreated(participants, asset, amount, tokenId, msg.sender, timestamp);
         return true;
     }
 
@@ -324,9 +316,14 @@ contract Pasanaku is ERC1155, Ownable {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return _gameExists(tokenId) && _isParticipant(participant, rs.participants)
-            && participant != rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
-            && !_deposited[participant][tokenId][rs.currentIndex];
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant != rs.participants[rs.currentIndex]
+            && !rs.ended
+            && !rs.recovered
+            && !_deposited[participant][tokenId][rs.currentIndex]
+        );
     }
 
     function _canClaim(address participant, uint256 tokenId) internal view returns (bool) {
@@ -337,18 +334,28 @@ contract Pasanaku is ERC1155, Ownable {
         uint256 lenParticipants = rs.participants.length;
         uint256 minAmountToClaim = rs.amount * (lenParticipants - benefactorDepositsCount);
 
-        return _gameExists(tokenId) && _isParticipant(participant, rs.participants)
-            && participant == rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
-            && rs.totalDeposited >= minAmountToClaim;
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant == rs.participants[rs.currentIndex]
+            && !rs.ended
+            && !rs.recovered
+            && rs.totalDeposited >= minAmountToClaim
+        );
     }
 
     function _canRecover(address participant, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return _gameExists(tokenId) && _isParticipant(participant, rs.participants)
-            && participant != rs.participants[rs.currentIndex] && rs.totalDeposited > 0
-            && _deposited[participant][tokenId][rs.currentIndex] && !rs.ended
-            && block.timestamp - rs.lastUpdatedAt >= DAYS_30;
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant != rs.participants[rs.currentIndex]
+            && rs.totalDeposited > 0
+            && _deposited[participant][tokenId][rs.currentIndex]
+            && !rs.ended
+            && block.timestamp - rs.lastUpdatedAt >= DAYS_30
+        );
     }
 }
