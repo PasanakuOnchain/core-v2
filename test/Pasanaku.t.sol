@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
@@ -87,7 +87,7 @@ contract PasanakuTest is Test {
         token.approve(address(pasanaku), amount);
     }
 
-    function _createRS(address creator_, address[] memory participants_) internal returns (uint256 tokenId) {
+    function _createRs(address creator_, address[] memory participants_) internal returns (uint256 tokenId) {
         vm.prank(creator_);
         pasanaku.create(address(token), participants_, AMOUNT);
         return 0;

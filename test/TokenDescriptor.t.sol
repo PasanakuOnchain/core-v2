@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
@@ -34,7 +34,7 @@ contract TokenDescriptorTest is Test {
         participants[2] = makeAddr("p3");
     }
 
-    function _createRS(
+    function _createRs(
         address asset,
         uint256 amount,
         address creator_,
@@ -101,7 +101,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_returnsValidDataUriPrefix() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
 
@@ -113,7 +113,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_base64DecodesToValidJson() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -130,7 +130,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_usesLayoutOngoingWhenNotEnded() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -143,7 +143,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_usesLayoutEndedWhenEnded() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -160,7 +160,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_jsonHasRequiredFields() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -173,7 +173,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_nameFormat() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -183,7 +183,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_description() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -196,7 +196,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributesCount() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -220,7 +220,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeTotalDeposited() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -231,7 +231,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeCurrentIndex() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -242,9 +242,9 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeEnded() public view {
         IPasanaku.RotatingSavings memory rsFalse =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
         IPasanaku.RotatingSavings memory rsTrue =
-            _createRS(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory jsonFalse = _decodeJsonPayload(tokenDescriptor.tokenURI(rsFalse));
         string memory jsonTrue = _decodeJsonPayload(tokenDescriptor.tokenURI(rsTrue));
@@ -256,7 +256,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeRecovered() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
         rs.recovered = true;
 
         string memory result = tokenDescriptor.tokenURI(rs);
@@ -268,7 +268,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeCreator() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -280,7 +280,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeCreatedAt() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -294,7 +294,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeLastUpdatedAt() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -308,7 +308,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeParticipants() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -319,7 +319,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeAsset() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -331,7 +331,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeAmount() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -342,7 +342,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_attributeTokenId() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -359,7 +359,7 @@ contract TokenDescriptorTest is Test {
         address[] memory one = new address[](1);
         one[0] = makeAddr("sole");
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 1, one, 0, 1e18, false);
+            _createRs(address(token), 1e18, creator, 1, one, 0, 1e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -369,7 +369,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_recoveredTrue() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
         rs.recovered = true;
 
         string memory result = tokenDescriptor.tokenURI(rs);
@@ -381,7 +381,7 @@ contract TokenDescriptorTest is Test {
 
     function test_tokenURI_zeroTokenId() public view {
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(token), 1e18, creator, 0, participants, 1, 2e18, false);
+            _createRs(address(token), 1e18, creator, 0, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -394,7 +394,7 @@ contract TokenDescriptorTest is Test {
     function test_tokenURI_largeValues() public view {
         uint256 largeAmount = 1e18 * 1_000_000;
         uint256 largeTimestamp = 2_000_000_000;
-        IPasanaku.RotatingSavings memory rs = _createRS(
+        IPasanaku.RotatingSavings memory rs = _createRs(
             address(token), largeAmount, creator, 999_999, participants, 2, largeAmount * 3, false
         );
         rs.createdAt = largeTimestamp;
@@ -416,7 +416,7 @@ contract TokenDescriptorTest is Test {
         two[1] = makeAddr("b");
 
         IPasanaku.RotatingSavings memory rs =
-            _createRS(address(tokenB), 1e6, creatorA, 1, two, 0, 1e6, false);
+            _createRs(address(tokenB), 1e6, creatorA, 1, two, 0, 1e6, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
