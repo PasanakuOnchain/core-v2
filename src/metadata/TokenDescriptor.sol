@@ -10,12 +10,14 @@ contract TokenDescriptor {
     ILayout public immutable LAYOUT_ENDED;
     ILayout public immutable LAYOUT_ONGOING;
 
+    uint256 private constant ADDRESS_LENGTH = 20;
+
     constructor(address _layoutEnded, address _layoutOngoing) {
         LAYOUT_ENDED = ILayout(_layoutEnded);
         LAYOUT_ONGOING = ILayout(_layoutOngoing);
     }
 
-    function tokenURI(IPasanaku.RotatingSavings memory rs) public view returns (string memory) {
+    function tokenURI(IPasanaku.RotatingSavings memory rs) external view returns (string memory) {
         string memory imageURI = rs.ended ? LAYOUT_ENDED.layout(rs) : LAYOUT_ONGOING.layout(rs);
 
         string memory dataURI = string.concat(
@@ -37,7 +39,7 @@ contract TokenDescriptor {
             rs.recovered ? "true" : "false",
             "},",
             '{"trait_type": "Creator", "value": "',
-            LibString.toHexString(uint256(uint160(rs.creator)), 20),
+            LibString.toHexString(uint256(uint160(rs.creator)), ADDRESS_LENGTH),
             '"},',
             '{"trait_type": "Created At", "value": "',
             LibString.toString(rs.createdAt),
@@ -49,7 +51,7 @@ contract TokenDescriptor {
             LibString.toString(rs.participants.length),
             '"},',
             '{"trait_type": "Asset", "value": "',
-            LibString.toHexString(uint256(uint160(rs.asset)), 20),
+            LibString.toHexString(uint256(uint160(rs.asset)), ADDRESS_LENGTH),
             '"},',
             '{"trait_type": "Amount", "value": "',
             LibString.toString(rs.amount),

@@ -22,7 +22,6 @@ contract Pasanaku is ERC1155, Ownable {
     error Pasanaku__CannotDeposit();
     error Pasanaku__CannotClaim();
     error Pasanaku__CannotRecover();
-    error Pasanaku__TransferFailed();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */
