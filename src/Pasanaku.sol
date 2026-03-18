@@ -169,7 +169,7 @@ contract Pasanaku is ERC1155, Ownable {
             rs.currentIndex = currentIndex + 1;
         }
         rs.totalDeposited = 0;
-        rs.ended = rs.currentIndex == rs.participants.length;
+        rs.ended = rs.currentIndex >= rs.participants.length;
 
         SafeTransferLib.safeTransfer(rs.asset, msg.sender, amountToClaim);
 
@@ -283,7 +283,7 @@ contract Pasanaku is ERC1155, Ownable {
     }
 
     function _depositsCount(address participant, IPasanaku.RotatingSavings storage rs) internal view returns (uint256) {
-        uint256 count;
+        uint256 count = 0;
         for (uint256 i; i < rs.participants.length;) {
             if (rs.participants[i] == participant) {
                 unchecked {
