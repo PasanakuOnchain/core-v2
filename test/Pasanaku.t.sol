@@ -15,6 +15,7 @@ contract PasanakuTest is Test {
         address indexed creator,
         uint256 createdAt
     );
+
     event Deposited(
         address indexed participant,
         uint256 indexed tokenId,
@@ -22,6 +23,7 @@ contract PasanakuTest is Test {
         uint256 amount,
         uint256 totalDeposited
     );
+
     event Claimed(
         address indexed participant,
         uint256 indexed tokenId,
@@ -29,7 +31,9 @@ contract PasanakuTest is Test {
         uint256 amount,
         uint256 totalDeposited
     );
+
     event Ended(uint256 indexed tokenId, uint256 lastUpdatedAt);
+
     event Recovered(
         address indexed participant,
         uint256 indexed tokenId,
@@ -89,10 +93,6 @@ contract PasanakuTest is Test {
         return 0;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                           1. CONSTRUCTOR AND SETUP
-    //////////////////////////////////////////////////////////////*/
-
     function test_constructor_setsOwnerAndSupportedAssets() public view {
         assertEq(pasanaku.owner(), owner);
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
@@ -111,10 +111,6 @@ contract PasanakuTest is Test {
     function test_nextTokenId_startsAtZero() public view {
         assertEq(pasanaku.nextTokenId(), 0);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                              2. create()
-    //////////////////////////////////////////////////////////////*/
 
     function test_create_success() public {
         address[] memory participants = new address[](2);
@@ -219,10 +215,6 @@ contract PasanakuTest is Test {
         vm.expectRevert(Pasanaku.Pasanaku__TooManyParticipants.selector);
         pasanaku.create(address(token), participants, AMOUNT);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                              3. deposit()
-    //////////////////////////////////////////////////////////////*/
 
     function test_deposit_success() public {
         address[] memory participants = new address[](2);
@@ -348,10 +340,6 @@ contract PasanakuTest is Test {
         vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
         pasanaku.deposit(0);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                              4. claim()
-    //////////////////////////////////////////////////////////////*/
 
     function test_claim_success() public {
         address[] memory participants = new address[](2);
@@ -804,10 +792,6 @@ contract PasanakuTest is Test {
         assertTrue(pasanaku.hasDeposited(p2, 0, 0));
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    8. INTEGRATION / FULL FLOWS
-    //////////////////////////////////////////////////////////////*/
-
     function test_integration_fullRotation_twoParticipants() public {
         address[] memory participants = new address[](2);
         participants[0] = p1;
@@ -896,10 +880,6 @@ contract PasanakuTest is Test {
         assertFalse(pasanaku.canClaim(p1, 0));
         assertEq(pasanaku.totalDeposited(0), 0);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                    9. EDGE CASES AND ERC1155
-    //////////////////////////////////////////////////////////////*/
 
     function test_uri_returnsEmptyString() public view {
         assertEq(pasanaku.uri(0), "");
