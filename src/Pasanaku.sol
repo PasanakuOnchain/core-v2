@@ -358,4 +358,6 @@ contract Pasanaku is ERC1155, Ownable {
             && block.timestamp - rs.lastUpdatedAt >= DAYS_30
         );
     }
+
+    receive() external payable {}
 }
