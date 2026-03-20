@@ -80,20 +80,17 @@ contract LayoutOngoingTest is Test {
     }
 
     function test_layout_returnsValidDataUri() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
 
         assertTrue(
-            _contains(result, "data:image/svg+xml;base64,"),
-            "LayoutOngoing: output should start with data URI prefix"
+            _contains(result, "data:image/svg+xml;base64,"), "LayoutOngoing: output should start with data URI prefix"
         );
     }
 
     function test_layout_svgContainsSymbol() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -103,8 +100,7 @@ contract LayoutOngoingTest is Test {
     }
 
     function test_layout_svgContainsTotalAmount() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -115,8 +111,7 @@ contract LayoutOngoingTest is Test {
 
     function test_layout_svgContainsRoundInfo() public view {
         // currentIndex=1 => round 2, 3 players => 2/3
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -127,8 +122,7 @@ contract LayoutOngoingTest is Test {
 
     function test_layout_svgContainsDepositedInfo() public view {
         // 3 players, 2 deposited: playersDeposited=2, playersExpected=2 => "2 of 2"
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 0, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 0, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -138,8 +132,7 @@ contract LayoutOngoingTest is Test {
     }
 
     function test_layout_svgContainsPlayersAndTokenId() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = layoutOngoing.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -159,8 +152,7 @@ contract LayoutOngoingTest is Test {
         five[3] = makeAddr("player3");
         five[4] = makeAddr("player4");
 
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 1, five, 0, 1e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 1, five, 0, 1e18, false);
 
         string memory svg = _decodeSvg(layoutOngoing.layout(rs));
 
@@ -174,8 +166,7 @@ contract LayoutOngoingTest is Test {
         three[1] = makeAddr("b");
         three[2] = makeAddr("c");
 
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 1, three, 0, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 1, three, 0, 2e18, false);
 
         string memory svg = _decodeSvg(layoutOngoing.layout(rs));
 
@@ -190,18 +181,15 @@ contract LayoutOngoingTest is Test {
         two[0] = makeAddr("a");
         two[1] = makeAddr("b");
 
-        IPasanaku.RotatingSavings memory rs6 =
-            _createRs(address(token6), 1e6, creator, 1, two, 0, 1e6, false);
-        IPasanaku.RotatingSavings memory rs18 =
-            _createRs(address(token18), 1e18, creator, 2, two, 0, 1e18, false);
+        IPasanaku.RotatingSavings memory rs6 = _createRs(address(token6), 1e6, creator, 1, two, 0, 1e6, false);
+        IPasanaku.RotatingSavings memory rs18 = _createRs(address(token18), 1e18, creator, 2, two, 0, 1e18, false);
 
         assertTrue(_contains(_decodeSvg(layoutOngoing.layout(rs6)), "USDT"));
         assertTrue(_contains(_decodeSvg(layoutOngoing.layout(rs18)), "DAI"));
     }
 
     function test_layout_revertsWithZeroAmount() public {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 0, creator, 1, participants, 0, 0, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 0, creator, 1, participants, 0, 0, false);
 
         vm.expectRevert();
         layoutOngoing.layout(rs);

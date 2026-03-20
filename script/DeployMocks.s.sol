@@ -9,12 +9,12 @@ import {MockERC20} from "../test/_mocks/MockERC20.sol";
 /// @notice Deploys mock ERC20 tokens for testnet testing.
 /// @dev Set MOCK_TOKENS env var for custom config: "name,symbol,decimals:name,symbol,decimals"
 ///      Example: MOCK_TOKENS="USDC,USDC,6:USDT,Tether,6:DAI,DAI,18"
-///      Default: USDC (6 decimals), DAI (18 decimals)
+///      Default: USDC (6 decimals), USDT (6 decimals), WETH (18 decimals)
 contract DeployMocks is Script {
     uint256 private constant DEFAULT_MINT_AMOUNT = 1_000_000e18;
 
     function run() public returns (address[] memory deployed) {
-        string memory config = vm.envOr("MOCK_TOKENS", string("USDC,USDC,6:DAI,DAI,18"));
+        string memory config = vm.envOr("MOCK_TOKENS", string("USDC,USDC,6:USDT,USDT,6:WETH,WETH,18"));
         string[] memory tokens = vm.split(config, ":");
         deployed = new address[](tokens.length);
 

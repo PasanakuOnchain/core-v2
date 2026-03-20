@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import {ERC1155} from "solady/tokens/ERC1155.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IPasanaku} from "./interfaces/IPasanaku.sol";
 
@@ -10,11 +11,12 @@ import {IPasanaku} from "./interfaces/IPasanaku.sol";
 /// @author Rafael Abuawad <x.com/rabuawad_>
 /// @notice This code is for testing purposes only, is not production ready and is not audited.
 ///         Everything is subject to change. Use at your own risk.
-contract Pasanaku is ERC1155, Ownable {
+contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                       CUSTOM ERRORS                        */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    error Pasanaku__InvalidAmount();
     error Pasanaku__InsufficientFee();
     error Pasanaku__UnsupportedAsset();
     error Pasanaku__NoParticipants();
@@ -22,6 +24,9 @@ contract Pasanaku is ERC1155, Ownable {
     error Pasanaku__CannotDeposit();
     error Pasanaku__CannotClaim();
     error Pasanaku__CannotRecover();
+    error Pasanaku__DuplicateParticipant();
+    error Pasanaku__CannotSkip();
+    error Pasanaku__InvalidDestination();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */
@@ -62,6 +67,13 @@ contract Pasanaku is ERC1155, Ownable {
         uint256 totalDeposited
     );
 
+    event Skipped(
+        address indexed destination,
+        uint256 indexed tokenId,
+        uint256 index,
+        uint256 amount
+    );
+
     event Ended(
         uint256 indexed tokenId,
         uint256 lastUpdatedAt
@@ -82,6 +94,10 @@ contract Pasanaku is ERC1155, Ownable {
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) private _deposited;
     uint256 private _counter;
 
+    // @dev The supported assets is a list of known stable coins,
+    //      none of them have a fee-on-transfer mechanism or a
+    //      rebasing mechanism. The full token list is:
+    //      USDC, USDT, WETH, crvUSD, scrvUSD, DAI, MIM, PYUSD, USDS, sUSDS
     address[SUPPORTED_ASSETS_COUNT] private _supportedAssets;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -102,11 +118,28 @@ contract Pasanaku is ERC1155, Ownable {
     /*                    EXTERNAL FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function create(address asset, address[] calldata participants, uint256 amount) external payable returns (bool) {
+    function create(address asset, address[] calldata participants, uint256 amount)
+        external
+        payable
+        nonReentrant
+        returns (bool)
+    {
+        if (amount == 0) revert Pasanaku__InvalidAmount();
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         if (!_isSupportedAsset(asset)) revert Pasanaku__UnsupportedAsset();
         if (participants.length == 0) revert Pasanaku__NoParticipants();
         if (participants.length > MAX_PARTICIPANTS_COUNT) revert Pasanaku__TooManyParticipants();
+        for (uint256 i; i < participants.length;) {
+            for (uint256 j = i + 1; j < participants.length;) {
+                if (participants[i] == participants[j]) revert Pasanaku__DuplicateParticipant();
+                unchecked {
+                    ++j;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
 
         uint256 tokenId = _counter;
         unchecked {
@@ -161,22 +194,18 @@ contract Pasanaku is ERC1155, Ownable {
         if (!_canClaim(msg.sender, tokenId)) revert Pasanaku__CannotClaim();
 
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
-        uint256 amountToClaim = rs.totalDeposited;
-        uint256 currentIndex = rs.currentIndex;
+        _applyRound(rs, msg.sender, true);
+        return true;
+    }
 
-        rs.lastUpdatedAt = block.timestamp;
-        unchecked {
-            rs.currentIndex = currentIndex + 1;
-        }
-        rs.totalDeposited = 0;
-        rs.ended = rs.currentIndex >= rs.participants.length;
+    function skip(uint256 tokenId, address destination) external payable returns (bool) {
+        if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
+        IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
+        if (!_gameExists(tokenId) || rs.ended) revert Pasanaku__CannotSkip();
+        if (!_canClaim(msg.sender, tokenId)) revert Pasanaku__CannotSkip();
+        if (destination == address(0)) revert Pasanaku__InvalidDestination();
 
-        SafeTransferLib.safeTransfer(rs.asset, msg.sender, amountToClaim);
-
-        if (rs.ended) {
-            emit Ended(tokenId, block.timestamp);
-        }
-        emit Claimed(msg.sender, tokenId, currentIndex, amountToClaim, amountToClaim);
+        _applyRound(rs, destination, false);
         return true;
     }
 
@@ -216,7 +245,7 @@ contract Pasanaku is ERC1155, Ownable {
 
     function expectedTotalDeposited(uint256 tokenId, address participant) external view returns (uint256) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
-        uint256 depositsCount = _depositsCount(participant, rs);
+        uint256 depositsCount = _isParticipant(participant, rs.participants) ? 1 : 0;
         return rs.amount * (rs.participants.length - depositsCount);
     }
 
@@ -269,6 +298,34 @@ contract Pasanaku is ERC1155, Ownable {
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                     INTERNAL FUNCTIONS                     */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    function _applyRound(IPasanaku.RotatingSavings storage rs, address destination, bool isClaim) internal {
+        uint256 amountToPay = rs.totalDeposited;
+        uint256 currentIndex = rs.currentIndex;
+
+        rs.lastUpdatedAt = block.timestamp;
+        unchecked {
+            rs.currentIndex = currentIndex + 1;
+        }
+        rs.totalDeposited = 0;
+        rs.ended = rs.currentIndex >= rs.participants.length;
+
+        SafeTransferLib.safeTransfer(rs.asset, destination, amountToPay);
+
+        if (rs.ended) {
+            emit Ended(rs.tokenId, block.timestamp);
+        }
+
+        if (isClaim) {
+            emit Claimed(destination, rs.tokenId, currentIndex, amountToPay, amountToPay);
+        } else {
+            emit Skipped(destination, rs.tokenId, currentIndex, amountToPay);
+        }
+    }
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                  INTERNAL VIEW FUNCTIONS                   */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
@@ -280,21 +337,6 @@ contract Pasanaku is ERC1155, Ownable {
             }
         }
         return false;
-    }
-
-    function _depositsCount(address participant, IPasanaku.RotatingSavings storage rs) internal view returns (uint256) {
-        uint256 count = 0;
-        for (uint256 i; i < rs.participants.length;) {
-            if (rs.participants[i] == participant) {
-                unchecked {
-                    ++count;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-        return count;
     }
 
     function _isParticipant(address participant, address[] storage participants) internal view returns (bool) {
@@ -315,47 +357,32 @@ contract Pasanaku is ERC1155, Ownable {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return (
-            _gameExists(tokenId)
-            && _isParticipant(participant, rs.participants)
-            && participant != rs.participants[rs.currentIndex]
-            && !rs.ended
-            && !rs.recovered
-            && !_deposited[participant][tokenId][rs.currentIndex]
-        );
+        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
+                && participant != rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
+                && !_deposited[participant][tokenId][rs.currentIndex]);
     }
 
     function _canClaim(address participant, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        uint256 benefactorDepositsCount = _depositsCount(participant, rs);
         uint256 lenParticipants = rs.participants.length;
-        uint256 minAmountToClaim = rs.amount * (lenParticipants - benefactorDepositsCount);
+        uint256 minAmountToClaim =
+            rs.amount * (lenParticipants - (_isParticipant(participant, rs.participants) ? 1 : 0));
 
-        return (
-            _gameExists(tokenId)
-            && _isParticipant(participant, rs.participants)
-            && participant == rs.participants[rs.currentIndex]
-            && !rs.ended
-            && !rs.recovered
-            && rs.totalDeposited >= minAmountToClaim
-        );
+        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
+                && participant == rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
+                && rs.totalDeposited >= minAmountToClaim);
     }
 
     function _canRecover(address participant, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return (
-            _gameExists(tokenId)
-            && _isParticipant(participant, rs.participants)
-            && participant != rs.participants[rs.currentIndex]
-            && rs.totalDeposited > 0
-            && _deposited[participant][tokenId][rs.currentIndex]
-            && !rs.ended
-            && block.timestamp - rs.lastUpdatedAt >= DAYS_30
-        );
+        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
+                && participant != rs.participants[rs.currentIndex] && rs.totalDeposited > 0
+                && _deposited[participant][tokenId][rs.currentIndex] && !rs.ended
+                && block.timestamp - rs.lastUpdatedAt >= DAYS_30);
     }
 
     receive() external payable {}

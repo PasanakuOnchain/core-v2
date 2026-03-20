@@ -100,8 +100,7 @@ contract TokenDescriptorTest is Test {
     // -------------------------------------------------------------------------
 
     function test_tokenURI_returnsValidDataUriPrefix() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
 
@@ -112,8 +111,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_base64DecodesToValidJson() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -129,29 +127,23 @@ contract TokenDescriptorTest is Test {
     // -------------------------------------------------------------------------
 
     function test_tokenURI_usesLayoutOngoingWhenNotEnded() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
         assertTrue(
-            _contains(json, "data:image/svg+xml;base64,"),
-            "Image should contain SVG data URI from LayoutOngoing"
+            _contains(json, "data:image/svg+xml;base64,"), "Image should contain SVG data URI from LayoutOngoing"
         );
     }
 
     function test_tokenURI_usesLayoutEndedWhenEnded() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
-        assertTrue(
-            _contains(json, "data:image/svg+xml;base64,"),
-            "Image should contain SVG data URI from LayoutEnded"
-        );
+        assertTrue(_contains(json, "data:image/svg+xml;base64,"), "Image should contain SVG data URI from LayoutEnded");
     }
 
     // -------------------------------------------------------------------------
@@ -159,8 +151,7 @@ contract TokenDescriptorTest is Test {
     // -------------------------------------------------------------------------
 
     function test_tokenURI_jsonHasRequiredFields() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -172,8 +163,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_nameFormat() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -182,8 +172,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_description() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -195,8 +184,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributesCount() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -205,8 +193,8 @@ contract TokenDescriptorTest is Test {
         bytes memory j = bytes(json);
         for (uint256 i = 0; i < j.length - 8; i++) {
             if (
-                j[i] == "t" && j[i + 1] == "r" && j[i + 2] == "a" && j[i + 3] == "i"
-                    && j[i + 4] == "t" && j[i + 5] == "_" && j[i + 6] == "t" && j[i + 7] == "y"
+                j[i] == "t" && j[i + 1] == "r" && j[i + 2] == "a" && j[i + 3] == "i" && j[i + 4] == "t"
+                    && j[i + 5] == "_" && j[i + 6] == "t" && j[i + 7] == "y"
             ) {
                 count++;
             }
@@ -219,8 +207,7 @@ contract TokenDescriptorTest is Test {
     // -------------------------------------------------------------------------
 
     function test_tokenURI_attributeTotalDeposited() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -230,8 +217,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeCurrentIndex() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -255,8 +241,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeRecovered() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
         rs.recovered = true;
 
         string memory result = tokenDescriptor.tokenURI(rs);
@@ -267,8 +252,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeCreator() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -279,36 +263,27 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeCreatedAt() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
         assertTrue(_contains(json, '"Created At"'), "Should have Created At trait");
-        assertTrue(
-            _contains(json, LibString.toString(block.timestamp)),
-            "Created At should match block.timestamp"
-        );
+        assertTrue(_contains(json, LibString.toString(block.timestamp)), "Created At should match block.timestamp");
     }
 
     function test_tokenURI_attributeLastUpdatedAt() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
         assertTrue(_contains(json, '"Last Updated At"'), "Should have Last Updated At trait");
-        assertTrue(
-            _contains(json, LibString.toString(block.timestamp)),
-            "Last Updated At should match block.timestamp"
-        );
+        assertTrue(_contains(json, LibString.toString(block.timestamp)), "Last Updated At should match block.timestamp");
     }
 
     function test_tokenURI_attributeParticipants() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -318,8 +293,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeAsset() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -330,8 +304,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeAmount() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -341,8 +314,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_attributeTokenId() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -358,8 +330,7 @@ contract TokenDescriptorTest is Test {
     function test_tokenURI_minimalValidParticipants() public {
         address[] memory one = new address[](1);
         one[0] = makeAddr("sole");
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 1, one, 0, 1e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 1, one, 0, 1e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -368,8 +339,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_recoveredTrue() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
         rs.recovered = true;
 
         string memory result = tokenDescriptor.tokenURI(rs);
@@ -380,8 +350,7 @@ contract TokenDescriptorTest is Test {
     }
 
     function test_tokenURI_zeroTokenId() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 0, participants, 1, 2e18, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 0, participants, 1, 2e18, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
@@ -394,9 +363,8 @@ contract TokenDescriptorTest is Test {
     function test_tokenURI_largeValues() public view {
         uint256 largeAmount = 1e18 * 1_000_000;
         uint256 largeTimestamp = 2_000_000_000;
-        IPasanaku.RotatingSavings memory rs = _createRs(
-            address(token), largeAmount, creator, 999_999, participants, 2, largeAmount * 3, false
-        );
+        IPasanaku.RotatingSavings memory rs =
+            _createRs(address(token), largeAmount, creator, 999_999, participants, 2, largeAmount * 3, false);
         rs.createdAt = largeTimestamp;
         rs.lastUpdatedAt = largeTimestamp;
 
@@ -415,8 +383,7 @@ contract TokenDescriptorTest is Test {
         two[0] = makeAddr("a");
         two[1] = makeAddr("b");
 
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(tokenB), 1e6, creatorA, 1, two, 0, 1e6, false);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(tokenB), 1e6, creatorA, 1, two, 0, 1e6, false);
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);

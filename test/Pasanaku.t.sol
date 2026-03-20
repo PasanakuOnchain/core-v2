@@ -17,29 +17,16 @@ contract PasanakuTest is Test {
     );
 
     event Deposited(
-        address indexed participant,
-        uint256 indexed tokenId,
-        uint256 index,
-        uint256 amount,
-        uint256 totalDeposited
+        address indexed participant, uint256 indexed tokenId, uint256 index, uint256 amount, uint256 totalDeposited
     );
 
     event Claimed(
-        address indexed participant,
-        uint256 indexed tokenId,
-        uint256 index,
-        uint256 amount,
-        uint256 totalDeposited
+        address indexed participant, uint256 indexed tokenId, uint256 index, uint256 amount, uint256 totalDeposited
     );
 
     event Ended(uint256 indexed tokenId, uint256 lastUpdatedAt);
 
-    event Recovered(
-        address indexed participant,
-        uint256 indexed tokenId,
-        uint256 index,
-        uint256 amount
-    );
+    event Recovered(address indexed participant, uint256 indexed tokenId, uint256 index, uint256 amount);
 
     Pasanaku public pasanaku;
     MockERC20 public token;
@@ -166,17 +153,15 @@ contract PasanakuTest is Test {
         assertEq(pasanaku.balanceOf(owner, 0), 1);
     }
 
-    function test_create_duplicateParticipantsAllowed() public {
+    function test_create_revertsDuplicateParticipants() public {
         address[] memory participants = new address[](3);
         participants[0] = p1;
         participants[1] = p2;
         participants[2] = p1;
 
         vm.prank(owner);
+        vm.expectRevert(Pasanaku.Pasanaku__DuplicateParticipant.selector);
         pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.balanceOf(p1, 0), 2);
-        assertEq(pasanaku.balanceOf(p2, 0), 1);
     }
 
     function test_create_revertsUnsupportedAsset() public {
@@ -395,26 +380,30 @@ contract PasanakuTest is Test {
         assertEq(pasanaku.beneficiary(0), address(0));
     }
 
-    function test_claim_withDuplicateParticipants() public {
+    function test_claim_threeParticipants_firstRound() public {
         address[] memory participants = new address[](3);
         participants[0] = p1;
         participants[1] = p2;
-        participants[2] = p1;
+        participants[2] = p3;
 
         vm.prank(owner);
         pasanaku.create(address(token), participants, AMOUNT);
 
         _fundAndApprove(p2, AMOUNT);
+        _fundAndApprove(p3, AMOUNT);
         vm.prank(p2);
         pasanaku.deposit(0);
+        vm.prank(p3);
+        pasanaku.deposit(0);
 
-        assertEq(pasanaku.totalDeposited(0), AMOUNT);
+        assertEq(pasanaku.totalDeposited(0), 2 * AMOUNT);
         assertTrue(pasanaku.canClaim(p1, 0));
 
         vm.prank(p1);
         pasanaku.claim(0);
 
         assertEq(pasanaku.rotatingSavings(0).currentIndex, 1);
+        assertEq(pasanaku.totalDeposited(0), 0);
     }
 
     function test_claim_revertsWhenNotBeneficiary() public {
@@ -684,13 +673,14 @@ contract PasanakuTest is Test {
         address[] memory participants = new address[](3);
         participants[0] = p1;
         participants[1] = p2;
-        participants[2] = p1;
+        participants[2] = p3;
 
         vm.prank(owner);
         pasanaku.create(address(token), participants, AMOUNT);
 
-        assertEq(pasanaku.expectedTotalDeposited(0, p1), AMOUNT);
+        assertEq(pasanaku.expectedTotalDeposited(0, p1), 2 * AMOUNT);
         assertEq(pasanaku.expectedTotalDeposited(0, p2), 2 * AMOUNT);
+        assertEq(pasanaku.expectedTotalDeposited(0, p3), 2 * AMOUNT);
     }
 
     function test_beneficiary_returnsCurrentBeneficiary() public {

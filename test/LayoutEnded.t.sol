@@ -80,20 +80,17 @@ contract LayoutEndedTest is Test {
     }
 
     function test_layout_returnsValidDataUri() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = layoutEnded.layout(rs);
 
         assertTrue(
-            _contains(result, "data:image/svg+xml;base64,"),
-            "LayoutEnded: output should start with data URI prefix"
+            _contains(result, "data:image/svg+xml;base64,"), "LayoutEnded: output should start with data URI prefix"
         );
     }
 
     function test_layout_svgContainsCreatorAddress() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = layoutEnded.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -102,8 +99,7 @@ contract LayoutEndedTest is Test {
     }
 
     function test_layout_svgContainsPlayersCount() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = layoutEnded.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -114,8 +110,7 @@ contract LayoutEndedTest is Test {
 
     function test_layout_svgContainsTotalDistributed() public view {
         // 3 players: totalDistributed = amount * (3-1) * 3 = 6e18
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = layoutEnded.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -126,8 +121,7 @@ contract LayoutEndedTest is Test {
     }
 
     function test_layout_svgContainsTokenId() public view {
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 2, 3e18, true);
 
         string memory result = layoutEnded.layout(rs);
         string memory svg = _decodeSvg(result);
@@ -141,8 +135,7 @@ contract LayoutEndedTest is Test {
         MockERC20Metadata token18 = new MockERC20Metadata(18, "WETH");
 
         // 2 players: totalDistributed = 1e6 * 1 * 2 = 2e6
-        IPasanaku.RotatingSavings memory rs6 =
-            _createRs(address(token6), 1e6, creator, 1, participants, 1, 1e6, true);
+        IPasanaku.RotatingSavings memory rs6 = _createRs(address(token6), 1e6, creator, 1, participants, 1, 1e6, true);
         participants[0] = makeAddr("a");
         participants[1] = makeAddr("b");
         address[] memory twoPlayers = new address[](2);
@@ -155,8 +148,7 @@ contract LayoutEndedTest is Test {
         string memory svg6 = _decodeSvg(result6);
 
         // 2 players: totalDistributed = 1e18 * 1 * 2 = 2e18
-        IPasanaku.RotatingSavings memory rs18 =
-            _createRs(address(token18), 1e18, creator, 2, twoPlayers, 1, 1e18, true);
+        IPasanaku.RotatingSavings memory rs18 = _createRs(address(token18), 1e18, creator, 2, twoPlayers, 1, 1e18, true);
 
         string memory result18 = layoutEnded.layout(rs18);
         string memory svg18 = _decodeSvg(result18);
@@ -175,10 +167,8 @@ contract LayoutEndedTest is Test {
         two[0] = makeAddr("a");
         two[1] = makeAddr("b");
 
-        IPasanaku.RotatingSavings memory rsUsdt =
-            _createRs(address(usdt), 1e6, creator, 1, two, 0, 1e6, true);
-        IPasanaku.RotatingSavings memory rsDai =
-            _createRs(address(dai), 1e18, creator, 2, two, 0, 1e18, true);
+        IPasanaku.RotatingSavings memory rsUsdt = _createRs(address(usdt), 1e6, creator, 1, two, 0, 1e6, true);
+        IPasanaku.RotatingSavings memory rsDai = _createRs(address(dai), 1e18, creator, 2, two, 0, 1e18, true);
 
         assertTrue(_contains(_decodeSvg(layoutEnded.layout(rsUsdt)), "USDT"));
         assertTrue(_contains(_decodeSvg(layoutEnded.layout(rsDai)), "DAI"));
@@ -190,8 +180,7 @@ contract LayoutEndedTest is Test {
         two[1] = makeAddr("b");
 
         // totalDistributed = 100e18 * (2-1) * 2 = 200e18
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 100e18, creator, 1, two, 0, 100e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 100e18, creator, 1, two, 0, 100e18, true);
 
         string memory svg = _decodeSvg(layoutEnded.layout(rs));
 
@@ -207,8 +196,7 @@ contract LayoutEndedTest is Test {
         five[4] = makeAddr("player4");
 
         // totalDistributed = 10e18 * (5-1) * 5 = 200e18
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 10e18, creator, 1, five, 2, 30e18, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 10e18, creator, 1, five, 2, 30e18, true);
 
         string memory svg = _decodeSvg(layoutEnded.layout(rs));
 
@@ -218,8 +206,7 @@ contract LayoutEndedTest is Test {
 
     function test_layout_revertsWithZeroParticipants() public {
         address[] memory empty;
-        IPasanaku.RotatingSavings memory rs =
-            _createRs(address(token), 1e18, creator, 1, empty, 0, 0, true);
+        IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 1, empty, 0, 0, true);
 
         vm.expectRevert();
         layoutEnded.layout(rs);
