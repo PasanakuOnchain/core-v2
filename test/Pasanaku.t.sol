@@ -2,8 +2,12 @@
 pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import {Pasanaku} from "../src/Pasanaku.sol";
 import {IPasanaku} from "../src/interfaces/IPasanaku.sol";
+import {TokenDescriptor} from "../src/metadata/TokenDescriptor.sol";
+import {LayoutEnded} from "../src/metadata/layouts/LayoutEnded.sol";
+import {LayoutOngoing} from "../src/metadata/layouts/LayoutOngoing.sol";
 import {MockERC20} from "./_mocks/MockERC20.sol";
 
 contract PasanakuTest is Test {
@@ -29,6 +33,9 @@ contract PasanakuTest is Test {
     event Recovered(address indexed participant, uint256 indexed tokenId, uint256 index, uint256 amount);
 
     Pasanaku public pasanaku;
+    TokenDescriptor public tokenDescriptor;
+    LayoutEnded public layoutEnded;
+    LayoutOngoing public layoutOngoing;
     MockERC20 public token;
 
     address public owner;
@@ -37,7 +44,7 @@ contract PasanakuTest is Test {
     address public p3;
 
     uint256 constant AMOUNT = 1e18;
-    uint256 constant SUPPORTED_ASSETS_COUNT = 9;
+    uint256 constant SUPPORTED_ASSETS_COUNT = 10;
 
     function setUp() public {
         owner = makeAddr("owner");
@@ -56,8 +63,12 @@ contract PasanakuTest is Test {
             assets[i] = address(0);
         }
 
+        layoutEnded = new LayoutEnded();
+        layoutOngoing = new LayoutOngoing();
+        tokenDescriptor = new TokenDescriptor(address(layoutEnded), address(layoutOngoing));
+
         vm.prank(owner);
-        pasanaku = new Pasanaku(assets);
+        pasanaku = new Pasanaku(assets, address(tokenDescriptor));
     }
 
     function _createParticipants(uint256 n) internal returns (address[] memory) {
@@ -82,13 +93,14 @@ contract PasanakuTest is Test {
 
     function test_constructor_setsOwnerAndSupportedAssets() public view {
         assertEq(pasanaku.owner(), owner);
+        assertEq(address(pasanaku.TOKEN_DESCRIPTOR()), address(tokenDescriptor));
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
         assertEq(assets[0], address(token));
     }
 
     function test_supportedAssets_returnsCorrectLength() public view {
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
-        assertEq(assets.length, 9);
+        assertEq(assets.length, 10);
     }
 
     function test_protocolFee_returnsZero() public view {
@@ -871,8 +883,67 @@ contract PasanakuTest is Test {
         assertEq(pasanaku.totalDeposited(0), 0);
     }
 
-    function test_uri_returnsEmptyString() public view {
-        assertEq(pasanaku.uri(0), "");
+    function test_uri_matchesTokenDescriptor() public {
+        address[] memory participants = new address[](2);
+        participants[0] = p1;
+        participants[1] = p2;
+
+        vm.prank(owner);
+        pasanaku.create(address(token), participants, AMOUNT);
+
+        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(0);
+        assertEq(pasanaku.uri(0), tokenDescriptor.tokenURI(rs));
+    }
+
+    function test_uri_uninitializedTokenId_reverts() public {
+        // Default `asset` is address(0); layouts read ERC20 metadata and revert.
+        vm.expectRevert();
+        pasanaku.uri(999);
+    }
+
+    function test_uri_secondToken_matchesTokenDescriptor() public {
+        address[] memory participants = new address[](2);
+        participants[0] = p1;
+        participants[1] = p2;
+
+        vm.startPrank(owner);
+        pasanaku.create(address(token), participants, AMOUNT);
+        pasanaku.create(address(token), participants, AMOUNT);
+        vm.stopPrank();
+
+        assertEq(pasanaku.uri(0), tokenDescriptor.tokenURI(pasanaku.rotatingSavings(0)));
+        assertEq(pasanaku.uri(1), tokenDescriptor.tokenURI(pasanaku.rotatingSavings(1)));
+    }
+
+    function test_uri_returnsJsonDataUriPrefix() public {
+        address[] memory participants = new address[](2);
+        participants[0] = p1;
+        participants[1] = p2;
+
+        vm.prank(owner);
+        pasanaku.create(address(token), participants, AMOUNT);
+
+        string memory u = pasanaku.uri(0);
+        assertTrue(LibString.startsWith(u, "data:application/json;base64,"));
+    }
+
+    function test_uri_changesWhenRotatingSavingsStateChanges() public {
+        address[] memory participants = new address[](2);
+        participants[0] = p1;
+        participants[1] = p2;
+
+        vm.prank(owner);
+        pasanaku.create(address(token), participants, AMOUNT);
+
+        string memory uriBefore = pasanaku.uri(0);
+
+        _fundAndApprove(p2, AMOUNT);
+        vm.prank(p2);
+        pasanaku.deposit(0);
+
+        string memory uriAfter = pasanaku.uri(0);
+        assertTrue(keccak256(bytes(uriBefore)) != keccak256(bytes(uriAfter)));
+        assertEq(uriAfter, tokenDescriptor.tokenURI(pasanaku.rotatingSavings(0)));
     }
 
     function test_recover_burnsCorrectAmount() public {

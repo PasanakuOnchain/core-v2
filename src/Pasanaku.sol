@@ -6,6 +6,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IPasanaku} from "./interfaces/IPasanaku.sol";
+import {ITokenDescriptor} from "./interfaces/ITokenDescriptor.sol";
 
 /// @title Pasanaku - Rotating savings decentralized protocol
 /// @author Rafael Abuawad <x.com/rabuawad_>
@@ -36,7 +37,13 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     uint256 private constant TOKEN_AMOUNT = 1;
     uint256 private constant MAX_PARTICIPANTS_COUNT = 12;
     uint256 private constant DAYS_30 = 60 * 60 * 24 * 30;
-    uint256 private constant SUPPORTED_ASSETS_COUNT = 9;
+    uint256 private constant SUPPORTED_ASSETS_COUNT = 10;
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                            STORAGE                          */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    ITokenDescriptor public immutable TOKEN_DESCRIPTOR;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           EVENTS                           */
@@ -104,7 +111,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                         CONSTRUCTOR                        */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    constructor(address[SUPPORTED_ASSETS_COUNT] memory supportedAssets_) {
+    constructor(address[SUPPORTED_ASSETS_COUNT] memory supportedAssets_, address _tokenDescriptor) {
         _initializeOwner(msg.sender);
         for (uint256 i; i < SUPPORTED_ASSETS_COUNT;) {
             _supportedAssets[i] = supportedAssets_[i];
@@ -112,6 +119,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
                 ++i;
             }
         }
+        TOKEN_DESCRIPTOR = ITokenDescriptor(_tokenDescriptor);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -293,8 +301,9 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                         OVERRIDES                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function uri(uint256) public pure override returns (string memory) {
-        return "";
+    function uri(uint256 tokenId) public view override returns (string memory) {
+        IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
+        return TOKEN_DESCRIPTOR.tokenURI(rs);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -357,9 +366,14 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
-                && participant != rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
-                && !_deposited[participant][tokenId][rs.currentIndex]);
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant != rs.participants[rs.currentIndex]
+            && !rs.ended
+            && !rs.recovered
+            && !_deposited[participant][tokenId][rs.currentIndex]
+        );
     }
 
     function _canClaim(address participant, uint256 tokenId) internal view returns (bool) {
@@ -370,19 +384,28 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         uint256 minAmountToClaim =
             rs.amount * (lenParticipants - (_isParticipant(participant, rs.participants) ? 1 : 0));
 
-        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
-                && participant == rs.participants[rs.currentIndex] && !rs.ended && !rs.recovered
-                && rs.totalDeposited >= minAmountToClaim);
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant == rs.participants[rs.currentIndex]
+            && !rs.ended
+            && !rs.recovered
+            && rs.totalDeposited >= minAmountToClaim
+        );
     }
 
     function _canRecover(address participant, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended) return false;
 
-        return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
-                && participant != rs.participants[rs.currentIndex] && rs.totalDeposited > 0
-                && _deposited[participant][tokenId][rs.currentIndex] && !rs.ended
-                && block.timestamp - rs.lastUpdatedAt >= DAYS_30);
+        return (
+            _gameExists(tokenId)
+            && _isParticipant(participant, rs.participants)
+            && participant != rs.participants[rs.currentIndex]
+            && rs.totalDeposited > 0
+            && _deposited[participant][tokenId][rs.currentIndex]
+            && !rs.ended
+            && block.timestamp - rs.lastUpdatedAt >= DAYS_30);
     }
 
     receive() external payable {}
