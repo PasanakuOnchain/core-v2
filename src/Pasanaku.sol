@@ -43,7 +43,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                            STORAGE                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    ITokenDescriptor public immutable TOKEN_DESCRIPTOR;
+    ITokenDescriptor private immutable TOKEN_DESCRIPTOR;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           EVENTS                           */
@@ -98,7 +98,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     mapping(uint256 => IPasanaku.RotatingSavings) private _rotatingSavings;
-    mapping(address => mapping(uint256 => mapping(uint256 => bool))) private _deposited;
+    mapping(address => mapping(uint256 => bool)) private _deposited;
     uint256 private _counter;
 
     // @dev The supported assets is a list of known stable coins,
@@ -189,7 +189,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
 
         rs.lastUpdatedAt = block.timestamp;
         rs.totalDeposited += rs.amount;
-        _deposited[msg.sender][tokenId][currentIndex] = true;
+        _deposited[msg.sender][tokenId] = true;
 
         SafeTransferLib.safeTransferFrom(rs.asset, msg.sender, address(this), rs.amount);
 
@@ -227,7 +227,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
 
         rs.totalDeposited -= rs.amount;
         rs.recovered = true;
-        _deposited[msg.sender][tokenId][currentIndex] = false;
+        _deposited[msg.sender][tokenId] = false;
 
         SafeTransferLib.safeTransfer(rs.asset, msg.sender, rs.amount);
 
@@ -242,6 +242,10 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                        VIEW FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    function tokenDescriptor() external view returns (address) {
+        return address(TOKEN_DESCRIPTOR);
+    }
 
     function rotatingSavings(uint256 tokenId) external view returns (IPasanaku.RotatingSavings memory) {
         return _rotatingSavings[tokenId];
@@ -289,8 +293,8 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return _supportedAssets;
     }
 
-    function hasDeposited(address account, uint256 tokenId, uint256 index) external view returns (bool) {
-        return _deposited[account][tokenId][index];
+    function hasDeposited(address account, uint256 tokenId) external view returns (bool) {
+        return _deposited[account][tokenId];
     }
 
     function nextTokenId() external view returns (uint256) {
@@ -372,7 +376,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
             && participant != rs.participants[rs.currentIndex]
             && !rs.ended
             && !rs.recovered
-            && !_deposited[participant][tokenId][rs.currentIndex]
+            && !_deposited[participant][tokenId]
         );
     }
 
@@ -403,7 +407,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
             && _isParticipant(participant, rs.participants)
             && participant != rs.participants[rs.currentIndex]
             && rs.totalDeposited > 0
-            && _deposited[participant][tokenId][rs.currentIndex]
+            && _deposited[participant][tokenId]
             && !rs.ended
             && block.timestamp - rs.lastUpdatedAt >= DAYS_30);
     }

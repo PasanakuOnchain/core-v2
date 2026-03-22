@@ -93,7 +93,7 @@ contract PasanakuTest is Test {
 
     function test_constructor_setsOwnerAndSupportedAssets() public view {
         assertEq(pasanaku.owner(), owner);
-        assertEq(address(pasanaku.TOKEN_DESCRIPTOR()), address(tokenDescriptor));
+        assertEq(pasanaku.tokenDescriptor(), address(tokenDescriptor));
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
         assertEq(assets[0], address(token));
     }
@@ -233,7 +233,7 @@ contract PasanakuTest is Test {
         pasanaku.deposit(0);
 
         assertEq(pasanaku.totalDeposited(0), AMOUNT);
-        assertTrue(pasanaku.hasDeposited(p2, 0, 0));
+        assertTrue(pasanaku.hasDeposited(p2, 0));
         assertEq(token.balanceOf(address(pasanaku)), balanceBefore + AMOUNT);
     }
 
@@ -510,7 +510,7 @@ contract PasanakuTest is Test {
         assertEq(token.balanceOf(p2), balanceBefore + AMOUNT);
         assertEq(pasanaku.balanceOf(p2, 0), nftBalanceBefore - 1);
         assertEq(pasanaku.totalDeposited(0), 0);
-        assertFalse(pasanaku.hasDeposited(p2, 0, 0));
+        assertFalse(pasanaku.hasDeposited(p2, 0));
     }
 
     function test_recover_revertsWhenBeneficiary() public {
@@ -785,13 +785,13 @@ contract PasanakuTest is Test {
         vm.prank(owner);
         pasanaku.create(address(token), participants, AMOUNT);
 
-        assertFalse(pasanaku.hasDeposited(p2, 0, 0));
+        assertFalse(pasanaku.hasDeposited(p2, 0));
 
         _fundAndApprove(p2, AMOUNT);
         vm.prank(p2);
         pasanaku.deposit(0);
 
-        assertTrue(pasanaku.hasDeposited(p2, 0, 0));
+        assertTrue(pasanaku.hasDeposited(p2, 0));
     }
 
     function test_integration_fullRotation_twoParticipants() public {
@@ -820,7 +820,9 @@ contract PasanakuTest is Test {
         assertTrue(pasanaku.rotatingSavings(0).ended);
     }
 
-    function test_integration_fullRotation_threeParticipants() public {
+    /// @dev With one deposit per participant per game, round 2 cannot collect enough deposits for N=3
+    ///      (p2/p3 already used their deposit in round 0).
+    function test_threeParticipants_stallsAfterFirstRound() public {
         address[] memory participants = new address[](3);
         participants[0] = p1;
         participants[1] = p2;
@@ -829,8 +831,8 @@ contract PasanakuTest is Test {
         vm.prank(owner);
         pasanaku.create(address(token), participants, AMOUNT);
 
-        _fundAndApprove(p2, 2 * AMOUNT);
-        _fundAndApprove(p3, 2 * AMOUNT);
+        _fundAndApprove(p2, AMOUNT);
+        _fundAndApprove(p3, AMOUNT);
 
         vm.prank(p2);
         pasanaku.deposit(0);
@@ -840,26 +842,22 @@ contract PasanakuTest is Test {
         vm.prank(p1);
         pasanaku.claim(0);
 
-        _fundAndApprove(p1, 2 * AMOUNT);
+        assertEq(pasanaku.beneficiary(0), p2);
+        assertTrue(pasanaku.hasDeposited(p2, 0));
+        assertTrue(pasanaku.hasDeposited(p3, 0));
+        assertFalse(pasanaku.hasDeposited(p1, 0));
+
+        _fundAndApprove(p3, AMOUNT);
+        vm.prank(p3);
+        vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
+        pasanaku.deposit(0);
+
+        _fundAndApprove(p1, AMOUNT);
         vm.prank(p1);
         pasanaku.deposit(0);
-        vm.prank(p3);
-        pasanaku.deposit(0);
 
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, 2 * AMOUNT);
-        _fundAndApprove(p2, 2 * AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p3);
-        pasanaku.claim(0);
-
-        assertTrue(pasanaku.rotatingSavings(0).ended);
+        assertEq(pasanaku.totalDeposited(0), AMOUNT);
+        assertFalse(pasanaku.canClaim(p2, 0));
     }
 
     function test_integration_recoverThenClaim() public {
