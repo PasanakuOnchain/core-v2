@@ -3,7 +3,7 @@ pragma solidity 0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {Pasanaku} from "../src/Pasanaku.sol";
+import {Pasanaku} from "pasanaku/Pasanaku.sol";
 
 /// @title CollectFees
 /// @notice Collects protocol fees from an existing Pasanaku instance.

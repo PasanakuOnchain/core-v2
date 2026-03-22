@@ -3,7 +3,7 @@ pragma solidity 0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {MockERC20} from "../test/_mocks/MockERC20.sol";
+import {MockERC20} from "tests/_mocks/MockERC20.sol";
 
 /// @title DeployMocks
 /// @notice Deploys mock ERC20 tokens for testnet testing.

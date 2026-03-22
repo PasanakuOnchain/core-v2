@@ -3,10 +3,10 @@ pragma solidity 0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {Pasanaku} from "../src/Pasanaku.sol";
-import {TokenDescriptor} from "../src/metadata/TokenDescriptor.sol";
-import {LayoutEnded} from "../src/metadata/layouts/LayoutEnded.sol";
-import {LayoutOngoing} from "../src/metadata/layouts/LayoutOngoing.sol";
+import {Pasanaku} from "pasanaku/Pasanaku.sol";
+import {TokenDescriptor} from "pasanaku/metadata/TokenDescriptor.sol";
+import {LayoutEnded} from "pasanaku/metadata/layouts/LayoutEnded.sol";
+import {LayoutOngoing} from "pasanaku/metadata/layouts/LayoutOngoing.sol";
 
 /// @title Deploy
 /// @notice Deploys TokenDescriptor (with layouts) and Pasanaku with modular asset configuration.
