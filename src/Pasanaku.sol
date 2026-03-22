@@ -386,8 +386,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         if (rs.ended) return false;
 
         uint256 lenParticipants = rs.participants.length;
-        uint256 minAmountToClaim =
-            rs.amount * (lenParticipants - (_isParticipant(participant, rs.participants) ? 1 : 0));
+        uint256 minAmountToClaim = rs.amount * (lenParticipants - 1);
 
         return (
             _gameExists(tokenId)
