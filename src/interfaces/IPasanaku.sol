@@ -2,7 +2,8 @@
 pragma solidity 0.8.33;
 
 /// @notice Shared struct for rotating savings data.
-library IPasanaku {
+/// @custom:security-contact https://x.com/rabuawad_
+interface IPasanaku {
     struct RotatingSavings {
         address[] participants;
         address asset;

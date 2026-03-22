@@ -3,11 +3,12 @@ pragma solidity 0.8.33;
 
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import {IERC20Metadata} from "../../interfaces/IERC20Metadata.sol";
-import {IPasanaku} from "../../interfaces/IPasanaku.sol";
-import {ILayout} from "../../interfaces/ILayout.sol";
-import {LibLayoutUtils} from "../../utils/LibLayoutUtils.sol";
+import {IERC20Metadata} from "pasanaku/interfaces/IERC20Metadata.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
+import {ILayout} from "pasanaku/interfaces/ILayout.sol";
+import {LibLayoutUtils} from "pasanaku/utils/LibLayoutUtils.sol";
 
+/// @custom:security-contact https://x.com/rabuawad_
 contract LayoutOngoing is ILayout {
     function layout(IPasanaku.RotatingSavings memory rs) external view returns (string memory) {
         return string.concat("data:image/svg+xml;base64,", Base64.encode(bytes(_imageData(rs))));

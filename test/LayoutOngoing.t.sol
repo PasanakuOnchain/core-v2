@@ -3,9 +3,9 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {Base64} from "solady/utils/Base64.sol";
-import {LayoutOngoing} from "../src/metadata/layouts/LayoutOngoing.sol";
-import {IPasanaku} from "../src/interfaces/IPasanaku.sol";
-import {MockERC20Metadata} from "./_mocks/MockERC20Metadata.sol";
+import {LayoutOngoing} from "pasanaku/metadata/layouts/LayoutOngoing.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
+import {MockERC20Metadata} from "tests/_mocks/MockERC20Metadata.sol";
 
 contract LayoutOngoingTest is Test {
     LayoutOngoing public layoutOngoing;

@@ -3,12 +3,14 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import {Pasanaku} from "../src/Pasanaku.sol";
-import {IPasanaku} from "../src/interfaces/IPasanaku.sol";
-import {TokenDescriptor} from "../src/metadata/TokenDescriptor.sol";
-import {LayoutEnded} from "../src/metadata/layouts/LayoutEnded.sol";
-import {LayoutOngoing} from "../src/metadata/layouts/LayoutOngoing.sol";
-import {MockERC20} from "./_mocks/MockERC20.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {Pasanaku} from "pasanaku/Pasanaku.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
+import {TokenDescriptor} from "pasanaku/metadata/TokenDescriptor.sol";
+import {LayoutEnded} from "pasanaku/metadata/layouts/LayoutEnded.sol";
+import {LayoutOngoing} from "pasanaku/metadata/layouts/LayoutOngoing.sol";
+import {MockERC20} from "tests/_mocks/MockERC20.sol";
+import {ReentrantMockERC20} from "tests/_mocks/ReentrantMockERC20.sol";
 
 contract PasanakuTest is Test {
     event RotatingSavingsCreated(
@@ -353,7 +355,7 @@ contract PasanakuTest is Test {
         uint256 balanceBefore = token.balanceOf(p1);
 
         vm.expectEmit(true, true, false, true);
-        emit Claimed(p1, 0, 0, AMOUNT, AMOUNT);
+        emit Claimed(p1, 0, 0, AMOUNT, 0);
 
         vm.prank(p1);
         pasanaku.claim(0);
@@ -981,5 +983,35 @@ contract PasanakuTest is Test {
     function test_nonExistentTokenId_returnsEmptyState() public view {
         IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(999);
         assertEq(rs.creator, address(0));
+    }
+
+    function test_deposit_revertsOnReentrantToken() public {
+        ReentrantMockERC20 reToken = new ReentrantMockERC20("Reentrant", "RNT", 18);
+        reToken.mint(p2, 1000e18);
+
+        address[SUPPORTED_ASSETS_COUNT] memory assets;
+        assets[0] = address(reToken);
+        for (uint256 i = 1; i < SUPPORTED_ASSETS_COUNT; i++) {
+            assets[i] = address(0);
+        }
+
+        vm.prank(owner);
+        Pasanaku p = new Pasanaku(assets, address(tokenDescriptor));
+
+        address[] memory participants = new address[](2);
+        participants[0] = p1;
+        participants[1] = p2;
+
+        vm.prank(owner);
+        p.create(address(reToken), participants, AMOUNT);
+
+        reToken.setReenterDeposit(p, 0, p2);
+
+        vm.prank(p2);
+        reToken.approve(address(p), AMOUNT);
+
+        vm.prank(p2);
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        p.deposit(0);
     }
 }

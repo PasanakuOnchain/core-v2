@@ -5,13 +5,14 @@ import {ERC1155} from "solady/tokens/ERC1155.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {IPasanaku} from "./interfaces/IPasanaku.sol";
-import {ITokenDescriptor} from "./interfaces/ITokenDescriptor.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
+import {ITokenDescriptor} from "pasanaku/interfaces/ITokenDescriptor.sol";
 
 /// @title Pasanaku - Rotating savings decentralized protocol
 /// @author Rafael Abuawad <x.com/rabuawad_>
 /// @notice This code is for testing purposes only, is not production ready and is not audited.
 ///         Everything is subject to change. Use at your own risk.
+/// @custom:security-contact https://x.com/rabuawad_
 contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                       CUSTOM ERRORS                        */
@@ -40,7 +41,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     uint256 private constant SUPPORTED_ASSETS_COUNT = 10;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                            STORAGE                          */
+    /*                         IMMUTABLES                         */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     ITokenDescriptor private immutable TOKEN_DESCRIPTOR;
@@ -180,7 +181,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return true;
     }
 
-    function deposit(uint256 tokenId) external payable returns (bool) {
+    function deposit(uint256 tokenId) external payable nonReentrant returns (bool) {
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         if (!_canDeposit(msg.sender, tokenId)) revert Pasanaku__CannotDeposit();
 
@@ -197,7 +198,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return true;
     }
 
-    function claim(uint256 tokenId) external payable returns (bool) {
+    function claim(uint256 tokenId) external payable nonReentrant returns (bool) {
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         if (!_canClaim(msg.sender, tokenId)) revert Pasanaku__CannotClaim();
 
@@ -206,7 +207,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return true;
     }
 
-    function skip(uint256 tokenId, address destination) external payable returns (bool) {
+    function skip(uint256 tokenId, address destination) external payable nonReentrant returns (bool) {
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (!_gameExists(tokenId) || rs.ended) revert Pasanaku__CannotSkip();
@@ -217,7 +218,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return true;
     }
 
-    function recover(uint256 tokenId) external returns (bool) {
+    function recover(uint256 tokenId) external nonReentrant returns (bool) {
         if (!_canRecover(msg.sender, tokenId)) revert Pasanaku__CannotRecover();
 
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
@@ -236,7 +237,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     }
 
     function collectProtocolFees() external onlyOwner {
-        SafeTransferLib.safeTransferAllETH(owner());
+        SafeTransferLib.safeTransferAllETH(msg.sender);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -332,7 +333,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         }
 
         if (isClaim) {
-            emit Claimed(destination, rs.tokenId, currentIndex, amountToPay, amountToPay);
+            emit Claimed(destination, rs.tokenId, currentIndex, amountToPay, rs.totalDeposited);
         } else {
             emit Skipped(destination, rs.tokenId, currentIndex, amountToPay);
         }

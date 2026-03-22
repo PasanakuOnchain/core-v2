@@ -4,6 +4,7 @@ pragma solidity 0.8.33;
 import {LibString} from "solady/utils/LibString.sol";
 
 /// @notice Shared utilities for layout contracts.
+/// @custom:security-contact https://x.com/rabuawad_
 library LibLayoutUtils {
     /// @dev Formats a token amount with decimal places, trimming trailing zeros.
     /// @param value Raw token amount (e.g. 1500000000000000000 for 1.5 with 18 decimals).
@@ -21,7 +22,7 @@ library LibLayoutUtils {
         uint256 digits = _digitCount(fractionalPart);
         uint256 padCount = decimals - digits;
 
-        for (uint256 i = 0; i < padCount; i++) {
+        for (uint256 i; i < padCount; ++i) {
             fractionalStr = string.concat("0", fractionalStr);
         }
 

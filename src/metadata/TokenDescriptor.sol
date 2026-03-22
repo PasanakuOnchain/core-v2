@@ -3,10 +3,12 @@ pragma solidity 0.8.33;
 
 import {LibString} from "solady/utils/LibString.sol";
 import {Base64} from "solady/utils/Base64.sol";
-import {IPasanaku} from "../interfaces/IPasanaku.sol";
-import {ILayout} from "../interfaces/ILayout.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
+import {ILayout} from "pasanaku/interfaces/ILayout.sol";
+import {ITokenDescriptor} from "pasanaku/interfaces/ITokenDescriptor.sol";
 
-contract TokenDescriptor {
+/// @custom:security-contact https://x.com/rabuawad_
+contract TokenDescriptor is ITokenDescriptor {
     ILayout public immutable LAYOUT_ENDED;
     ILayout public immutable LAYOUT_ONGOING;
 
