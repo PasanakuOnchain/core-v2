@@ -29,13 +29,15 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     error Pasanaku__DuplicateParticipant();
     error Pasanaku__CannotSkip();
     error Pasanaku__InvalidDestination();
+    error Pasanaku__NotEnoughParticipants();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    uint256 private constant PROTOCOL_FEE = 0; // TODO: set protocol fee
+    uint256 private constant PROTOCOL_FEE = 0; // TODO: set protocol fee  0.000075 ether
     uint256 private constant TOKEN_AMOUNT = 1;
+    uint256 private constant MIN_PARTICIPANTS_COUNT = 2;
     uint256 private constant MAX_PARTICIPANTS_COUNT = 12;
     uint256 private constant DAYS_30 = 60 * 60 * 24 * 30;
     uint256 private constant SUPPORTED_ASSETS_COUNT = 10;
@@ -138,6 +140,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         if (!_isSupportedAsset(asset)) revert Pasanaku__UnsupportedAsset();
         if (participants.length == 0) revert Pasanaku__NoParticipants();
         if (participants.length > MAX_PARTICIPANTS_COUNT) revert Pasanaku__TooManyParticipants();
+        if (participants.length < MIN_PARTICIPANTS_COUNT) revert Pasanaku__NotEnoughParticipants();
         for (uint256 i; i < participants.length;) {
             for (uint256 j = i + 1; j < participants.length;) {
                 if (participants[i] == participants[j]) revert Pasanaku__DuplicateParticipant();
@@ -164,7 +167,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
 
         uint256 timestamp = block.timestamp;
         _rotatingSavings[tokenId] = IPasanaku.RotatingSavings({
-            participants: participants,
+            participants: _shuffleParticipants(participants),
             asset: asset,
             amount: amount,
             currentIndex: 0,
@@ -314,6 +317,30 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     INTERNAL FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @dev Weak randomness on purpose, i don't think this needs a VRF or
+    //       something more elaborate
+    function _shuffleParticipants(address[] calldata participants) internal view returns (address[] memory) {
+        uint256 len = participants.length;
+        address[] memory shuffled = new address[](len);
+        for (uint256 c; c < len;) {
+            shuffled[c] = participants[c];
+            unchecked {
+                ++c;
+            }
+        }
+
+        uint256 _randomNumber = block.prevrandao;
+        for (uint256 i = 0; i < len; i++) {
+            uint256 n = i + (_randomNumber % (len - i));
+            if (i != n) {
+                address temp = shuffled[n];
+                shuffled[n] = shuffled[i];
+                shuffled[i] = temp;
+            }
+        }
+        return shuffled;
+    }
 
     function _applyRound(IPasanaku.RotatingSavings storage rs, address destination, bool isClaim) internal {
         uint256 amountToPay = rs.totalDeposited;

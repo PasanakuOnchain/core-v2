@@ -139,8 +139,9 @@ contract PasanakuTest is Test {
     }
 
     function test_create_incrementsTokenId() public {
-        address[] memory participants = new address[](1);
+        address[] memory participants = new address[](2);
         participants[0] = p1;
+        participants[1] = p2;
 
         vm.prank(owner);
         pasanaku.create(address(token), participants, AMOUNT);
