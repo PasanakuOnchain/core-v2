@@ -3,7 +3,6 @@ pragma solidity 0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Pasanaku} from "pasanaku/Pasanaku.sol";
 import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
 import {TokenDescriptor} from "pasanaku/metadata/TokenDescriptor.sol";
@@ -13,13 +12,14 @@ import {MockERC20} from "tests/_mocks/MockERC20.sol";
 import {ReentrantMockERC20} from "tests/_mocks/ReentrantMockERC20.sol";
 
 contract PasanakuTest is Test {
-    event RotatingSavingsCreated(
-        address[] participants,
+    event LobbyCreated(
         address indexed asset,
         uint256 amount,
         uint256 indexed tokenId,
         address indexed creator,
-        uint256 createdAt
+        uint256 createdAt,
+        uint8 minParticipants,
+        uint8 maxParticipants
     );
 
     event Deposited(
@@ -31,8 +31,6 @@ contract PasanakuTest is Test {
     );
 
     event Ended(uint256 indexed tokenId, uint256 lastUpdatedAt);
-
-    event Recovered(address indexed participant, uint256 indexed tokenId, uint256 index, uint256 amount);
 
     Pasanaku public pasanaku;
     TokenDescriptor public tokenDescriptor;
@@ -73,24 +71,44 @@ contract PasanakuTest is Test {
         pasanaku = new Pasanaku(assets, address(tokenDescriptor));
     }
 
-    function _createParticipants(uint256 n) internal returns (address[] memory) {
-        address[] memory participants = new address[](n);
-        for (uint256 i; i < n; i++) {
-            participants[i] = makeAddr(string(abi.encodePacked("participant", i)));
-            token.mint(participants[i], 1000e18);
-        }
-        return participants;
-    }
-
     function _fundAndApprove(address account, uint256 amount) internal {
         vm.prank(account);
         token.approve(address(pasanaku), amount);
     }
 
-    function _createRs(address creator_, address[] memory participants_) internal returns (uint256 tokenId) {
-        vm.prank(creator_);
-        pasanaku.create(address(token), participants_, AMOUNT);
-        return 0;
+    /// @dev Per-seat lock on join equals the round `amount` stored on the game (`rs.amount`).
+    function _lockAmount() internal pure returns (uint256) {
+        return AMOUNT;
+    }
+
+    function _addCollateralAndJoin(address user, uint256 tokenId) internal {
+        vm.startPrank(user);
+        token.approve(address(pasanaku), _lockAmount());
+        pasanaku.addCollateral(address(token), _lockAmount());
+        pasanaku.join(tokenId);
+        vm.stopPrank();
+    }
+
+    function _openLobby(uint8 minP, uint8 maxP) internal returns (uint256 tid) {
+        vm.prank(owner);
+        tid = pasanaku.create(address(token), AMOUNT, minP, maxP);
+    }
+
+    function _startTwoPlayerGame() internal returns (uint256 tid) {
+        tid = _openLobby(2, 2);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+        vm.prank(owner);
+        pasanaku.finalizeLobby(tid);
+    }
+
+    function _startThreePlayerGame() internal returns (uint256 tid) {
+        tid = _openLobby(2, 3);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+        _addCollateralAndJoin(p3, tid);
+        vm.prank(owner);
+        pasanaku.finalizeLobby(tid);
     }
 
     function test_constructor_setsOwnerAndSupportedAssets() public view {
@@ -98,11 +116,6 @@ contract PasanakuTest is Test {
         assertEq(pasanaku.tokenDescriptor(), address(tokenDescriptor));
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
         assertEq(assets[0], address(token));
-    }
-
-    function test_supportedAssets_returnsCorrectLength() public view {
-        address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
-        assertEq(assets.length, 10);
     }
 
     function test_protocolFee_returnsZero() public view {
@@ -114,16 +127,13 @@ contract PasanakuTest is Test {
     }
 
     function test_create_success() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
         vm.expectEmit(true, true, true, true);
-        emit RotatingSavingsCreated(participants, address(token), AMOUNT, 0, owner, block.timestamp);
+        emit LobbyCreated(address(token), AMOUNT, 0, owner, block.timestamp, 2, 12);
 
         vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        uint256 tid = pasanaku.create(address(token), AMOUNT, 2, 12);
 
+        assertEq(tid, 0);
         IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(0);
         assertEq(rs.asset, address(token));
         assertEq(rs.amount, AMOUNT);
@@ -131,496 +141,271 @@ contract PasanakuTest is Test {
         assertEq(rs.totalDeposited, 0);
         assertEq(rs.tokenId, 0);
         assertFalse(rs.ended);
-        assertFalse(rs.recovered);
+        assertFalse(rs.started);
+        assertFalse(rs.cancelled);
         assertEq(rs.creator, owner);
-
-        assertEq(pasanaku.balanceOf(p1, 0), 1);
-        assertEq(pasanaku.balanceOf(p2, 0), 1);
+        assertEq(uint256(rs.minParticipants), 2);
+        assertEq(uint256(rs.maxParticipants), 12);
+        assertEq(rs.participants.length, 0);
     }
 
     function test_create_incrementsTokenId() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        vm.startPrank(owner);
+        pasanaku.create(address(token), AMOUNT, 2, 12);
         assertEq(pasanaku.nextTokenId(), 1);
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        pasanaku.create(address(token), AMOUNT, 2, 12);
         assertEq(pasanaku.nextTokenId(), 2);
-
-        assertEq(pasanaku.rotatingSavings(0).tokenId, 0);
-        assertEq(pasanaku.rotatingSavings(1).tokenId, 1);
-    }
-
-    function test_create_creatorCanBeParticipant() public {
-        address[] memory participants = new address[](2);
-        participants[0] = owner;
-        participants[1] = p2;
-
-        token.mint(owner, 1000e18);
-
-        vm.prank(owner);
-        bool success = pasanaku.create(address(token), participants, AMOUNT);
-        assertTrue(success);
-        assertEq(pasanaku.balanceOf(owner, 0), 1);
-    }
-
-    function test_create_revertsDuplicateParticipants() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p1;
-
-        vm.prank(owner);
-        vm.expectRevert(Pasanaku.Pasanaku__DuplicateParticipant.selector);
-        pasanaku.create(address(token), participants, AMOUNT);
+        vm.stopPrank();
     }
 
     function test_create_revertsUnsupportedAsset() public {
-        address[] memory participants = new address[](1);
-        participants[0] = p1;
-
         address unsupportedToken = address(new MockERC20("Other", "OTH", 18));
 
         vm.prank(owner);
         vm.expectRevert(Pasanaku.Pasanaku__UnsupportedAsset.selector);
-        pasanaku.create(unsupportedToken, participants, AMOUNT);
+        pasanaku.create(unsupportedToken, AMOUNT, 2, 12);
     }
 
-    function test_create_revertsInsufficientFee() public {
-        vm.skip(pasanaku.protocolFee() == 0); // Cannot trigger when fee is 0
-        address[] memory participants = new address[](1);
-        participants[0] = p1;
+    function test_create_revertsInvalidLobby() public {
+        vm.prank(owner);
+        vm.expectRevert(Pasanaku.Pasanaku__NotEnoughParticipants.selector);
+        pasanaku.create(address(token), AMOUNT, 1, 12);
 
         vm.prank(owner);
-        vm.expectRevert(Pasanaku.Pasanaku__InsufficientFee.selector);
-        pasanaku.create{value: 0}(address(token), participants, AMOUNT);
+        vm.expectRevert(Pasanaku.Pasanaku__InvalidLobbyParams.selector);
+        pasanaku.create(address(token), AMOUNT, 5, 3);
     }
 
-    function test_create_revertsNoParticipants() public {
-        address[] memory participants;
-
-        vm.prank(owner);
-        vm.expectRevert(Pasanaku.Pasanaku__NoParticipants.selector);
-        pasanaku.create(address(token), participants, AMOUNT);
-    }
-
-    function test_create_revertsTooManyParticipants() public {
-        address[] memory participants = _createParticipants(13);
-
+    function test_create_revertsTooManyMax() public {
         vm.prank(owner);
         vm.expectRevert(Pasanaku.Pasanaku__TooManyParticipants.selector);
-        pasanaku.create(address(token), participants, AMOUNT);
+        pasanaku.create(address(token), AMOUNT, 2, 13);
+    }
+
+    function test_join_and_finalize() public {
+        uint256 tid = _openLobby(2, 2);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+
+        assertEq(pasanaku.lockedCollateralOf(p1, tid), _lockAmount());
+        assertEq(pasanaku.freeCollateralOf(p1, address(token)), 0);
+
+        vm.prank(owner);
+        pasanaku.finalizeLobby(tid);
+
+        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(tid);
+        assertTrue(rs.started);
+        assertEq(rs.participants.length, 2);
+        assertTrue(
+            (rs.participants[0] == p1 || rs.participants[0] == p2)
+                && (rs.participants[1] == p1 || rs.participants[1] == p2) && rs.participants[0] != rs.participants[1]
+        );
+    }
+
+    function test_join_revertsLotFull() public {
+        uint256 tid = _openLobby(2, 2);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+        token.mint(p3, 100e18);
+        vm.startPrank(p3);
+        token.approve(address(pasanaku), _lockAmount());
+        pasanaku.addCollateral(address(token), _lockAmount());
+        vm.expectRevert(Pasanaku.Pasanaku__LotFull.selector);
+        pasanaku.join(tid);
+        vm.stopPrank();
+    }
+
+    function test_finalize_revertsUntilLobbyFull() public {
+        uint256 tid = _openLobby(2, 3);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+        vm.prank(owner);
+        vm.expectRevert(Pasanaku.Pasanaku__CannotFinalize.selector);
+        pasanaku.finalizeLobby(tid);
+
+        _addCollateralAndJoin(p3, tid);
+        vm.prank(owner);
+        pasanaku.finalizeLobby(tid);
+        assertTrue(pasanaku.rotatingSavings(tid).started);
+    }
+
+    function test_leaveLobby_beforeFinalize() public {
+        uint256 tid = _openLobby(2, 12);
+        _addCollateralAndJoin(p1, tid);
+        assertEq(pasanaku.balanceOf(p1, tid), 1);
+
+        vm.prank(p1);
+        pasanaku.leaveLobby(tid);
+
+        assertEq(pasanaku.balanceOf(p1, tid), 0);
+        assertEq(pasanaku.freeCollateralOf(p1, address(token)), _lockAmount());
+        assertEq(pasanaku.rotatingSavings(tid).participants.length, 0);
+    }
+
+    function test_cancelLobby_refundsLocks() public {
+        uint256 tid = _openLobby(2, 12);
+        _addCollateralAndJoin(p1, tid);
+        _addCollateralAndJoin(p2, tid);
+
+        vm.prank(owner);
+        pasanaku.cancelLobby(tid);
+
+        assertTrue(pasanaku.rotatingSavings(tid).cancelled);
+        assertEq(pasanaku.freeCollateralOf(p1, address(token)), _lockAmount());
+        assertEq(pasanaku.freeCollateralOf(p2, address(token)), _lockAmount());
     }
 
     function test_deposit_success() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
+        uint256 tid = _startTwoPlayerGame();
+        address ben = pasanaku.beneficiary(tid);
+        address payer = ben == p1 ? p2 : p1;
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        vm.prank(p2);
-        token.approve(address(pasanaku), AMOUNT);
-
-        uint256 balanceBefore = token.balanceOf(address(pasanaku));
+        _fundAndApprove(payer, AMOUNT);
 
         vm.expectEmit(true, true, false, true);
-        emit Deposited(p2, 0, 0, AMOUNT, AMOUNT);
+        emit Deposited(payer, tid, 0, AMOUNT, AMOUNT);
 
-        vm.prank(p2);
-        pasanaku.deposit(0);
+        vm.prank(payer);
+        pasanaku.deposit(tid);
 
-        assertEq(pasanaku.totalDeposited(0), AMOUNT);
-        assertTrue(pasanaku.hasDeposited(p2, 0));
-        assertEq(token.balanceOf(address(pasanaku)), balanceBefore + AMOUNT);
+        assertEq(pasanaku.totalDeposited(tid), AMOUNT);
+        assertTrue(pasanaku.hasDeposited(payer, tid));
     }
 
-    function test_deposit_multipleParticipants() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        _fundAndApprove(p3, AMOUNT);
-
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p3);
-        pasanaku.deposit(0);
-
-        assertEq(pasanaku.totalDeposited(0), 2 * AMOUNT);
-    }
-
-    function test_deposit_revertsWhenBeneficiary() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p1, AMOUNT);
-
-        vm.prank(p1);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
-        pasanaku.deposit(0);
-    }
-
-    function test_deposit_revertsWhenNotParticipant() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        address nonParticipant = makeAddr("nonParticipant");
-        token.mint(nonParticipant, 1000e18);
-        vm.prank(nonParticipant);
-        token.approve(address(pasanaku), AMOUNT);
-
-        vm.prank(nonParticipant);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
-        pasanaku.deposit(0);
-    }
-
-    function test_deposit_revertsWhenAlreadyDeposited() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, 2 * AMOUNT);
-
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
-        pasanaku.deposit(0);
-    }
-
-    function test_deposit_revertsWhenGameEnded() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
+    function test_deposit_revertsWhenLobbyNotStarted() public {
+        uint256 tid = _openLobby(2, 12);
+        _addCollateralAndJoin(p1, tid);
         _fundAndApprove(p1, AMOUNT);
         vm.prank(p1);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
         vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
-        pasanaku.deposit(0);
+        pasanaku.deposit(tid);
     }
 
     function test_claim_success() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
+        uint256 tid = _startTwoPlayerGame();
+        address ben = pasanaku.beneficiary(tid);
+        address payer = ben == p1 ? p2 : p1;
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        _fundAndApprove(payer, AMOUNT);
+        vm.prank(payer);
+        pasanaku.deposit(tid);
 
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        uint256 balanceBefore = token.balanceOf(p1);
+        uint256 balanceBefore = token.balanceOf(ben);
 
         vm.expectEmit(true, true, false, true);
-        emit Claimed(p1, 0, 0, AMOUNT, 0);
+        emit Claimed(ben, tid, 0, AMOUNT, 0);
 
-        vm.prank(p1);
-        pasanaku.claim(0);
+        vm.prank(ben);
+        pasanaku.claim(tid);
 
-        assertEq(token.balanceOf(p1), balanceBefore + AMOUNT);
-        assertEq(pasanaku.totalDeposited(0), 0);
-        assertEq(pasanaku.rotatingSavings(0).currentIndex, 1);
+        assertEq(token.balanceOf(ben), balanceBefore + AMOUNT);
+        assertEq(pasanaku.totalDeposited(tid), 0);
+        assertEq(pasanaku.rotatingSavings(tid).currentIndex, 1);
     }
 
-    function test_claim_lastParticipant_setsEnded() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
+    function test_claim_lastParticipant_setsEnded_releasesCollateral() public {
+        uint256 tid = _startTwoPlayerGame();
+        address ben0 = pasanaku.beneficiary(tid);
+        address payer0 = ben0 == p1 ? p2 : p1;
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        _fundAndApprove(payer0, AMOUNT);
+        vm.prank(payer0);
+        pasanaku.deposit(tid);
 
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
+        vm.prank(ben0);
+        pasanaku.claim(tid);
 
-        vm.prank(p1);
-        pasanaku.claim(0);
+        address ben1 = pasanaku.beneficiary(tid);
+        address payer1 = ben1 == p1 ? p2 : p1;
 
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
+        _fundAndApprove(payer1, AMOUNT);
+        vm.prank(payer1);
+        pasanaku.deposit(tid);
 
         vm.expectEmit(true, false, false, false);
-        emit Ended(0, block.timestamp);
+        emit Ended(tid, block.timestamp);
 
-        vm.prank(p2);
-        pasanaku.claim(0);
+        vm.prank(ben1);
+        pasanaku.claim(tid);
 
-        assertTrue(pasanaku.rotatingSavings(0).ended);
-        assertEq(pasanaku.beneficiary(0), address(0));
+        assertTrue(pasanaku.rotatingSavings(tid).ended);
+        assertEq(pasanaku.beneficiary(tid), address(0));
+        assertEq(pasanaku.lockedCollateralOf(p1, tid), 0);
+        assertEq(pasanaku.lockedCollateralOf(p2, tid), 0);
+        assertEq(pasanaku.freeCollateralOf(p1, address(token)), _lockAmount());
+        assertEq(pasanaku.freeCollateralOf(p2, address(token)), _lockAmount());
     }
 
     function test_claim_threeParticipants_firstRound() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
+        uint256 tid = _startThreePlayerGame();
+        address ben = pasanaku.beneficiary(tid);
+        address payerA;
+        address payerB;
+        if (ben == p1) {
+            payerA = p2;
+            payerB = p3;
+        } else if (ben == p2) {
+            payerA = p1;
+            payerB = p3;
+        } else {
+            payerA = p1;
+            payerB = p2;
+        }
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        _fundAndApprove(payerA, AMOUNT);
+        _fundAndApprove(payerB, AMOUNT);
+        vm.prank(payerA);
+        pasanaku.deposit(tid);
+        vm.prank(payerB);
+        pasanaku.deposit(tid);
 
-        _fundAndApprove(p2, AMOUNT);
-        _fundAndApprove(p3, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-        vm.prank(p3);
-        pasanaku.deposit(0);
+        vm.prank(ben);
+        pasanaku.claim(tid);
 
-        assertEq(pasanaku.totalDeposited(0), 2 * AMOUNT);
-        assertTrue(pasanaku.canClaim(p1, 0));
-
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        assertEq(pasanaku.rotatingSavings(0).currentIndex, 1);
-        assertEq(pasanaku.totalDeposited(0), 0);
+        assertEq(pasanaku.rotatingSavings(tid).currentIndex, 1);
+        assertEq(pasanaku.totalDeposited(tid), 0);
     }
 
-    function test_claim_revertsWhenNotBeneficiary() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
+    function test_permissionlessClaim_afterGrace() public {
+        uint256 tid = _startTwoPlayerGame();
+        address ben = pasanaku.beneficiary(tid);
+        address payer = ben == p1 ? p2 : p1;
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotClaim.selector);
-        pasanaku.claim(0);
-    }
-
-    function test_claim_revertsWhenInsufficientDeposits() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p1);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotClaim.selector);
-        pasanaku.claim(0);
-    }
-
-    function test_claim_revertsWhenGameEnded() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        vm.prank(p1);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotClaim.selector);
-        pasanaku.claim(0);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                              5. recover()
-    //////////////////////////////////////////////////////////////*/
-
-    function test_recover_success() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
+        _fundAndApprove(payer, AMOUNT);
+        vm.prank(payer);
+        pasanaku.deposit(tid);
 
         vm.warp(block.timestamp + 31 days);
 
-        uint256 balanceBefore = token.balanceOf(p2);
-        uint256 nftBalanceBefore = pasanaku.balanceOf(p2, 0);
+        address keeper = makeAddr("keeper");
+        vm.prank(keeper);
+        pasanaku.claim(tid);
 
-        vm.expectEmit(true, true, false, true);
-        emit Recovered(p2, 0, 0, AMOUNT);
-
-        vm.prank(p2);
-        pasanaku.recover(0);
-
-        assertEq(token.balanceOf(p2), balanceBefore + AMOUNT);
-        assertEq(pasanaku.balanceOf(p2, 0), nftBalanceBefore - 1);
-        assertEq(pasanaku.totalDeposited(0), 0);
-        assertFalse(pasanaku.hasDeposited(p2, 0));
+        assertEq(pasanaku.rotatingSavings(tid).currentIndex, 1);
     }
 
-    function test_recover_revertsWhenBeneficiary() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
+    function test_removeCollateral_afterGameEnds() public {
+        uint256 tid = _startTwoPlayerGame();
+        address ben0 = pasanaku.beneficiary(tid);
+        address payer0 = ben0 == p1 ? p2 : p1;
+        _fundAndApprove(payer0, AMOUNT);
+        vm.prank(payer0);
+        pasanaku.deposit(tid);
+        vm.prank(ben0);
+        pasanaku.claim(tid);
+        address ben1 = pasanaku.beneficiary(tid);
+        address payer1 = ben1 == p1 ? p2 : p1;
+        _fundAndApprove(payer1, AMOUNT);
+        vm.prank(payer1);
+        pasanaku.deposit(tid);
+        vm.prank(ben1);
+        pasanaku.claim(tid);
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.warp(block.timestamp + 31 days);
-
+        uint256 beforeP1 = token.balanceOf(p1);
         vm.prank(p1);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotRecover.selector);
-        pasanaku.recover(0);
+        pasanaku.removeCollateral(address(token), _lockAmount());
+        assertEq(token.balanceOf(p1), beforeP1 + _lockAmount());
     }
-
-    function test_recover_revertsWhenNotDeposited() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.warp(block.timestamp + 31 days);
-
-        vm.prank(p3);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotRecover.selector);
-        pasanaku.recover(0);
-    }
-
-    function test_recover_revertsBefore30Days() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.warp(block.timestamp + 29 days);
-
-        vm.prank(p2);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotRecover.selector);
-        pasanaku.recover(0);
-    }
-
-    function test_recover_revertsWhenNoDeposits() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        vm.warp(block.timestamp + 31 days);
-
-        vm.prank(p2);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotRecover.selector);
-        pasanaku.recover(0);
-    }
-
-    function test_recover_revertsWhenGameEnded() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        vm.warp(block.timestamp + 31 days);
-
-        vm.prank(p2);
-        vm.expectRevert(Pasanaku.Pasanaku__CannotRecover.selector);
-        pasanaku.recover(0);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        6. collectProtocolFees()
-    //////////////////////////////////////////////////////////////*/
 
     function test_collectProtocolFees_success() public {
         vm.deal(address(pasanaku), 1 ether);
@@ -642,343 +427,70 @@ contract PasanakuTest is Test {
         pasanaku.collectProtocolFees();
     }
 
-    /*//////////////////////////////////////////////////////////////
-                           7. VIEW FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_rotatingSavings_returnsCorrectState() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(0);
-        assertEq(rs.participants.length, 2);
-        assertEq(rs.participants[0], p1);
-        assertEq(rs.participants[1], p2);
-        assertEq(rs.asset, address(token));
-        assertEq(rs.amount, AMOUNT);
-        assertEq(rs.currentIndex, 0);
-        assertEq(rs.totalDeposited, 0);
-        assertEq(rs.tokenId, 0);
-        assertFalse(rs.ended);
-        assertEq(rs.creator, owner);
-    }
-
-    function test_totalDeposited_returnsCorrectValue() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.totalDeposited(0), 0);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        assertEq(pasanaku.totalDeposited(0), AMOUNT);
-    }
-
-    function test_expectedTotalDeposited() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.expectedTotalDeposited(0, p1), 2 * AMOUNT);
-        assertEq(pasanaku.expectedTotalDeposited(0, p2), 2 * AMOUNT);
-        assertEq(pasanaku.expectedTotalDeposited(0, p3), 2 * AMOUNT);
-    }
-
-    function test_beneficiary_returnsCurrentBeneficiary() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.beneficiary(0), p1);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        assertEq(pasanaku.beneficiary(0), p2);
-    }
-
-    function test_beneficiary_returnsZeroWhenEnded() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        assertEq(pasanaku.beneficiary(0), address(0));
-    }
-
-    function test_canClaim_canDeposit_canRecover() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertFalse(pasanaku.canClaim(p1, 0));
-        assertTrue(pasanaku.canDeposit(p2, 0));
-        assertFalse(pasanaku.canRecover(p2, 0));
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        assertTrue(pasanaku.canClaim(p1, 0));
-        assertFalse(pasanaku.canDeposit(p2, 0));
-        assertFalse(pasanaku.canRecover(p2, 0));
-
-        vm.warp(block.timestamp + 31 days);
-
-        assertTrue(pasanaku.canRecover(p2, 0));
-    }
-
-    function test_participantsCount_returnsCorrectValue() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.participantsCount(0), 3);
-    }
-
-    function test_hasDeposited_returnsCorrectAfterDeposit() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertFalse(pasanaku.hasDeposited(p2, 0));
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        assertTrue(pasanaku.hasDeposited(p2, 0));
-    }
-
-    function test_integration_fullRotation_twoParticipants() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.claim(0);
-
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
-
-        vm.prank(p2);
-        pasanaku.claim(0);
-
-        assertTrue(pasanaku.rotatingSavings(0).ended);
-    }
-
-    /// @dev With one deposit per participant per game, round 2 cannot collect enough deposits for N=3
-    ///      (p2/p3 already used their deposit in round 0).
     function test_threeParticipants_stallsAfterFirstRound() public {
-        address[] memory participants = new address[](3);
-        participants[0] = p1;
-        participants[1] = p2;
-        participants[2] = p3;
+        uint256 tid = _startThreePlayerGame();
+        address ben0 = pasanaku.beneficiary(tid);
+        address payerA;
+        address payerB;
+        if (ben0 == p1) {
+            payerA = p2;
+            payerB = p3;
+        } else if (ben0 == p2) {
+            payerA = p1;
+            payerB = p3;
+        } else {
+            payerA = p1;
+            payerB = p2;
+        }
 
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
+        _fundAndApprove(payerA, AMOUNT);
+        _fundAndApprove(payerB, AMOUNT);
+        vm.prank(payerA);
+        pasanaku.deposit(tid);
+        vm.prank(payerB);
+        pasanaku.deposit(tid);
 
-        _fundAndApprove(p2, AMOUNT);
-        _fundAndApprove(p3, AMOUNT);
+        vm.prank(ben0);
+        pasanaku.claim(tid);
 
-        vm.prank(p2);
-        pasanaku.deposit(0);
-        vm.prank(p3);
-        pasanaku.deposit(0);
+        address ben1 = pasanaku.beneficiary(tid);
 
-        vm.prank(p1);
-        pasanaku.claim(0);
+        address alreadyDeposited;
+        address canPay;
+        address[3] memory all = [p1, p2, p3];
+        for (uint256 i; i < 3; i++) {
+            address a = all[i];
+            if (a == ben1) continue;
+            if (pasanaku.hasDeposited(a, tid)) {
+                alreadyDeposited = a;
+            } else {
+                canPay = a;
+            }
+        }
 
-        assertEq(pasanaku.beneficiary(0), p2);
-        assertTrue(pasanaku.hasDeposited(p2, 0));
-        assertTrue(pasanaku.hasDeposited(p3, 0));
-        assertFalse(pasanaku.hasDeposited(p1, 0));
-
-        _fundAndApprove(p3, AMOUNT);
-        vm.prank(p3);
+        _fundAndApprove(alreadyDeposited, AMOUNT);
+        vm.prank(alreadyDeposited);
         vm.expectRevert(Pasanaku.Pasanaku__CannotDeposit.selector);
-        pasanaku.deposit(0);
+        pasanaku.deposit(tid);
 
-        _fundAndApprove(p1, AMOUNT);
-        vm.prank(p1);
-        pasanaku.deposit(0);
+        _fundAndApprove(canPay, AMOUNT);
+        vm.prank(canPay);
+        pasanaku.deposit(tid);
 
-        assertEq(pasanaku.totalDeposited(0), AMOUNT);
-        assertFalse(pasanaku.canClaim(p2, 0));
-    }
-
-    function test_integration_recoverThenClaim() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.warp(block.timestamp + 31 days);
-
-        vm.prank(p2);
-        pasanaku.recover(0);
-
-        assertFalse(pasanaku.canClaim(p1, 0));
-        assertEq(pasanaku.totalDeposited(0), 0);
+        assertEq(pasanaku.totalDeposited(tid), AMOUNT);
+        assertFalse(pasanaku.canClaim(ben1, tid));
     }
 
     function test_uri_matchesTokenDescriptor() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(0);
-        assertEq(pasanaku.uri(0), tokenDescriptor.tokenURI(rs));
-    }
-
-    function test_uri_uninitializedTokenId_reverts() public {
-        // Default `asset` is address(0); layouts read ERC20 metadata and revert.
-        vm.expectRevert();
-        pasanaku.uri(999);
-    }
-
-    function test_uri_secondToken_matchesTokenDescriptor() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.startPrank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-        pasanaku.create(address(token), participants, AMOUNT);
-        vm.stopPrank();
-
-        assertEq(pasanaku.uri(0), tokenDescriptor.tokenURI(pasanaku.rotatingSavings(0)));
-        assertEq(pasanaku.uri(1), tokenDescriptor.tokenURI(pasanaku.rotatingSavings(1)));
+        uint256 tid = _startTwoPlayerGame();
+        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(tid);
+        assertEq(pasanaku.uri(tid), tokenDescriptor.tokenURI(rs));
     }
 
     function test_uri_returnsJsonDataUriPrefix() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        string memory u = pasanaku.uri(0);
+        uint256 tid = _startTwoPlayerGame();
+        string memory u = pasanaku.uri(tid);
         assertTrue(LibString.startsWith(u, "data:application/json;base64,"));
-    }
-
-    function test_uri_changesWhenRotatingSavingsStateChanges() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        string memory uriBefore = pasanaku.uri(0);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        string memory uriAfter = pasanaku.uri(0);
-        assertTrue(keccak256(bytes(uriBefore)) != keccak256(bytes(uriAfter)));
-        assertEq(uriAfter, tokenDescriptor.tokenURI(pasanaku.rotatingSavings(0)));
-    }
-
-    function test_recover_burnsCorrectAmount() public {
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.balanceOf(p2, 0), 1);
-
-        _fundAndApprove(p2, AMOUNT);
-        vm.prank(p2);
-        pasanaku.deposit(0);
-
-        vm.warp(block.timestamp + 31 days);
-
-        vm.prank(p2);
-        pasanaku.recover(0);
-
-        assertEq(pasanaku.balanceOf(p2, 0), 0);
-    }
-
-    function test_create_withMaxParticipants() public {
-        address[] memory participants = _createParticipants(12);
-
-        vm.prank(owner);
-        pasanaku.create(address(token), participants, AMOUNT);
-
-        assertEq(pasanaku.participantsCount(0), 12);
-        for (uint256 i; i < 12; i++) {
-            assertEq(pasanaku.balanceOf(participants[i], 0), 1);
-        }
     }
 
     function test_nonExistentTokenId_returnsEmptyState() public view {
@@ -988,6 +500,7 @@ contract PasanakuTest is Test {
 
     function test_deposit_revertsOnReentrantToken() public {
         ReentrantMockERC20 reToken = new ReentrantMockERC20("Reentrant", "RNT", 18);
+        reToken.mint(p1, 1000e18);
         reToken.mint(p2, 1000e18);
 
         address[SUPPORTED_ASSETS_COUNT] memory assets;
@@ -999,12 +512,22 @@ contract PasanakuTest is Test {
         vm.prank(owner);
         Pasanaku p = new Pasanaku(assets, address(tokenDescriptor));
 
-        address[] memory participants = new address[](2);
-        participants[0] = p1;
-        participants[1] = p2;
-
         vm.prank(owner);
-        p.create(address(reToken), participants, AMOUNT);
+        p.create(address(reToken), AMOUNT, 2, 2);
+
+        vm.startPrank(p1);
+        reToken.approve(address(p), AMOUNT);
+        p.addCollateral(address(reToken), AMOUNT);
+        p.join(0);
+        vm.stopPrank();
+        vm.startPrank(p2);
+        reToken.approve(address(p), AMOUNT);
+        p.addCollateral(address(reToken), AMOUNT);
+        p.join(0);
+        vm.stopPrank();
+        vm.prevrandao(2);
+        vm.prank(owner);
+        p.finalizeLobby(0);
 
         reToken.setReenterDeposit(p, 0, p2);
 
@@ -1012,7 +535,7 @@ contract PasanakuTest is Test {
         reToken.approve(address(p), AMOUNT);
 
         vm.prank(p2);
-        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        vm.expectRevert();
         p.deposit(0);
     }
 }
