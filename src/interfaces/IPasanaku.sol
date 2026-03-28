@@ -12,9 +12,12 @@ interface IPasanaku {
         uint256 totalDeposited;
         uint256 tokenId;
         bool ended;
-        bool recovered;
+        bool started;
+        bool cancelled;
         address creator;
         uint256 createdAt;
         uint256 lastUpdatedAt;
+        uint8 minParticipants;
+        uint8 maxParticipants;
     }
 }

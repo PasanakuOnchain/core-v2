@@ -52,10 +52,13 @@ contract TokenDescriptorTest is Test {
             totalDeposited: totalDeposited,
             tokenId: tokenId,
             ended: ended,
-            recovered: false,
+            started: true,
+            cancelled: false,
             creator: creator_,
             createdAt: block.timestamp,
-            lastUpdatedAt: block.timestamp
+            lastUpdatedAt: block.timestamp,
+            minParticipants: 2,
+            maxParticipants: 12
         });
     }
 
@@ -199,7 +202,7 @@ contract TokenDescriptorTest is Test {
                 count++;
             }
         }
-        assertEq(count, 11, "Should have 11 trait entries");
+        assertEq(count, 12, "Should have 12 trait entries");
     }
 
     // -------------------------------------------------------------------------
@@ -240,15 +243,15 @@ contract TokenDescriptorTest is Test {
         assertTrue(_contains(jsonTrue, '"value": true'), "Ended should be true when ended");
     }
 
-    function test_tokenURI_attributeRecovered() public view {
+    function test_tokenURI_attributeCancelled() public view {
         IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
-        rs.recovered = true;
+        rs.cancelled = true;
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
-        assertTrue(_contains(json, '"Recovered"'), "Should have Recovered trait");
-        assertTrue(_contains(json, '"value": true'), "Recovered should be true");
+        assertTrue(_contains(json, '"Cancelled"'), "Should have Cancelled trait");
+        assertTrue(_contains(json, '"value": true'), "Cancelled should be true");
     }
 
     function test_tokenURI_attributeCreator() public view {
@@ -338,15 +341,15 @@ contract TokenDescriptorTest is Test {
         assertTrue(_contains(json, '"value": "1"'), "Participants should be 1");
     }
 
-    function test_tokenURI_recoveredTrue() public view {
+    function test_tokenURI_startedLobbyPhase() public view {
         IPasanaku.RotatingSavings memory rs = _createRs(address(token), 1e18, creator, 42, participants, 1, 2e18, false);
-        rs.recovered = true;
+        rs.started = false;
 
         string memory result = tokenDescriptor.tokenURI(rs);
         string memory json = _decodeJsonPayload(result);
 
-        assertTrue(_contains(json, '"Recovered"'), "Should have Recovered trait");
-        assertTrue(_contains(json, '"value": true'), "Recovered should be true");
+        assertTrue(_contains(json, '"Started"'), "Should have Started trait");
+        assertTrue(_contains(json, '"value": false'), "Started should be false in lobby");
     }
 
     function test_tokenURI_zeroTokenId() public view {

@@ -45,10 +45,13 @@ contract LayoutOngoingTest is Test {
             totalDeposited: totalDeposited,
             tokenId: tokenId,
             ended: ended,
-            recovered: false,
+            started: true,
+            cancelled: false,
             creator: creator_,
             createdAt: block.timestamp,
-            lastUpdatedAt: block.timestamp
+            lastUpdatedAt: block.timestamp,
+            minParticipants: 2,
+            maxParticipants: 12
         });
     }
 
