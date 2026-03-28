@@ -35,9 +35,10 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     error Pasanaku__AlreadyJoined();
     error Pasanaku__CannotFinalize();
     error Pasanaku__CannotLeaveLobby();
-    error Pasanaku__InvalidLobbyParams();
     error Pasanaku__GameCancelled();
     error Pasanaku__CannotCancel();
+    error Pasanaku__InvalidStartsAt();
+    error Pasanaku__CannotTransfer();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */
@@ -69,7 +70,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         uint256 indexed tokenId,
         address indexed creator,
         uint256 createdAt,
-        uint8 minParticipants,
+        uint256 startsAt,
         uint8 maxParticipants
     );
 
@@ -196,22 +197,24 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     function create(
         address asset,
         uint256 amount,
-        uint8 minParticipants,
-        uint8 maxParticipants
+        uint8 maxParticipants,
+        uint256 startsAt
     ) external payable nonReentrant returns (uint256 tokenId) {
         if (amount == 0) revert Pasanaku__InvalidAmount();
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
-        if (minParticipants > maxParticipants) revert Pasanaku__InvalidLobbyParams();
-        if (minParticipants < MIN_PARTICIPANTS_COUNT) revert Pasanaku__NotEnoughParticipants();
+        if (maxParticipants < MIN_PARTICIPANTS_COUNT) revert Pasanaku__NotEnoughParticipants();
         if (maxParticipants > MAX_PARTICIPANTS_COUNT) revert Pasanaku__TooManyParticipants();
         if (!_isSupportedAsset(asset)) revert Pasanaku__UnsupportedAsset();
+
+        uint256 timestamp = block.timestamp;
+        if (startsAt < timestamp || startsAt > timestamp + MAX_START_DATE) {
+            revert Pasanaku__InvalidStartsAt();
+        }
 
         tokenId = _counter;
         unchecked {
             _counter = tokenId + 1;
         }
-
-        uint256 timestamp = block.timestamp;
         _rotatingSavings[tokenId] = IPasanaku.RotatingSavings({
             participants: new address[](0),
             asset: asset,
@@ -225,12 +228,11 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
             creator: msg.sender,
             createdAt: timestamp,
             lastUpdatedAt: timestamp,
-            minParticipants: minParticipants,
+            startsAt: startsAt,
+            cycleEpoch: 0,
             maxParticipants: maxParticipants
         });
-        emit LobbyCreated(
-            asset, amount, tokenId, msg.sender, timestamp, minParticipants, maxParticipants 
-        );
+        emit LobbyCreated(asset, amount, tokenId, msg.sender, timestamp, startsAt, maxParticipants);
     }
 
     function join(uint256 tokenId) external payable nonReentrant {
@@ -297,15 +299,14 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (!_gameExists(tokenId)) revert Pasanaku__CannotFinalize();
+        if (rs.creator != msg.sender) revert Pasanaku__CannotCancel();
         if (rs.cancelled) revert Pasanaku__GameCancelled();
         if (rs.started) revert Pasanaku__LobbyAlreadyStarted();
 
         uint256 len = rs.participants.length;
-        if (len < rs.minParticipants) revert Pasanaku__NotEnoughParticipants();
-        if (len > rs.maxParticipants) revert Pasanaku__TooManyParticipants();
-
-        bool full = len == uint256(rs.maxParticipants);
-        if (!full) revert Pasanaku__CannotFinalize();
+        uint256 cap = uint256(rs.maxParticipants);
+        if (len < cap) revert Pasanaku__NotEnoughParticipants();
+        if (len > cap) revert Pasanaku__TooManyParticipants();
 
         uint256 memLen = len;
         address[] memory mem = new address[](memLen);
@@ -324,9 +325,12 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
             }
         }
 
+        uint256 finalizedAt = block.timestamp;
+        uint256 epoch = rs.startsAt > finalizedAt ? rs.startsAt : finalizedAt;
+        rs.cycleEpoch = epoch;
         rs.started = true;
-        rs.lastUpdatedAt = block.timestamp;
-        emit LobbyFinalized(tokenId, rs.participants, block.timestamp);
+        rs.lastUpdatedAt = finalizedAt;
+        emit LobbyFinalized(tokenId, rs.participants, finalizedAt);
     }
 
     function deposit(uint256 tokenId) external payable nonReentrant returns (bool) {
@@ -357,6 +361,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         address beneficiary_ = rs.participants[rs.currentIndex];
 
         _applyRound(rs, beneficiary_, true);
+        _resetDeposit(tokenId);
         return true;
     }
 
@@ -369,11 +374,32 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         if (destination == address(0)) revert Pasanaku__InvalidDestination();
 
         _applyRound(rs, destination, false);
+        _resetDeposit(tokenId);
         return true;
     }
 
     function collectProtocolFees() external onlyOwner {
         SafeTransferLib.safeTransferAllETH(msg.sender);
+    }
+
+    function safeTransferFrom(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) public pure override {
+        revert Pasanaku__CannotTransfer();
+    }
+
+    function safeBatchTransferFrom(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) public pure override {
+        revert Pasanaku__CannotTransfer();
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -517,6 +543,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         unchecked {
             rs.currentIndex = currentIndex + 1;
         }
+        uint256 totalDeposited_ = rs.totalDeposited;
         rs.totalDeposited = 0;
         rs.ended = rs.currentIndex >= rs.participants.length;
 
@@ -528,7 +555,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         }
 
         if (isClaim) {
-            emit Claimed(destination, rs.tokenId, currentIndex, amountToPay, rs.totalDeposited);
+            emit Claimed(destination, rs.tokenId, currentIndex, amountToPay, totalDeposited_);
         } else {
             emit Skipped(destination, rs.tokenId, currentIndex, amountToPay);
         }
@@ -592,9 +619,31 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         return rs.totalDeposited >= minAmountToClaim;
     }
 
+    function _cycleReady(IPasanaku.RotatingSavings storage rs) internal view returns (bool) {
+        if (!rs.started || rs.cycleEpoch == 0) return false;
+        uint256 openAt;
+        unchecked {
+            openAt = rs.cycleEpoch + (rs.currentIndex + 1) * DAYS_30;
+        }
+        return block.timestamp >= openAt;
+    }
+
+    function _resetDeposit(uint256 tokenId) internal {
+        IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
+        uint256 len = rs.participants.length;
+        for (uint i = 0; i < len; ) {
+            address participant = rs.participants[i];
+            _deposited[participant][tokenId] = false;
+            unchecked {
+                i++;
+            }
+        }
+    }
+
     function _canDeposit(address participant, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (rs.ended || rs.cancelled || !rs.started) return false;
+        if (!_cycleReady(rs)) return false;
 
         return (_gameExists(tokenId) && _isParticipant(participant, rs.participants)
                 && participant != rs.participants[rs.currentIndex] && !_deposited[participant][tokenId]);
@@ -603,6 +652,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     function _canClaimAny(address caller, uint256 tokenId) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         if (!_gameExists(tokenId) || rs.ended || rs.cancelled || !rs.started) return false;
+        if (!_cycleReady(rs)) return false;
         if (!_roundReady(rs)) return false;
 
         address ben = rs.participants[rs.currentIndex];
@@ -612,6 +662,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
 
     function _canSkip(address caller, uint256 tokenId, address destination) internal view returns (bool) {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
+        if (!_cycleReady(rs)) return false;
         if (!_roundReady(rs)) return false;
 
         address ben = rs.participants[rs.currentIndex];
