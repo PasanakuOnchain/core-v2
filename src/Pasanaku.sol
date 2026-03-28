@@ -30,7 +30,6 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     error Pasanaku__NotEnoughParticipants();
     error Pasanaku__InsufficientFreeCollateral();
     error Pasanaku__LobbyAlreadyStarted();
-    error Pasanaku__LobbyNotOpen();
     error Pasanaku__LotFull();
     error Pasanaku__AlreadyJoined();
     error Pasanaku__CannotFinalize();
@@ -50,7 +49,6 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     uint256 private constant MAX_PARTICIPANTS_COUNT = 12;
     uint256 private constant CLAIM_GRACE_PERIOD = 10 days;
     uint256 private constant SUPPORTED_ASSETS_COUNT = 10;
-    uint256 private constant MIN_LOBBY_DEADLINE = 1 days;
     uint256 private constant MAX_START_DATE = 10 days;
     uint256 private constant DAYS_30 = 30 days;
 
@@ -246,6 +244,16 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
 
         uint256 lockAmount = rs.amount;
         if (_freeCollateral[msg.sender][rs.asset] < lockAmount) revert Pasanaku__InsufficientFreeCollateral();
+
+        uint256 len = rs.participants.length;
+        for (uint256 i; i < len;) {
+            if (rs.participants[i] == msg.sender) {
+                revert Pasanaku__DuplicateParticipant();
+            }
+            unchecked {
+                ++i;
+            }
+        }
 
         unchecked {
             _freeCollateral[msg.sender][rs.asset] -= lockAmount;
@@ -631,7 +639,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     function _resetDeposit(uint256 tokenId) internal {
         IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
         uint256 len = rs.participants.length;
-        for (uint i = 0; i < len; ) {
+        for (uint256 i = 0; i < len; ) {
             address participant = rs.participants[i];
             _deposited[participant][tokenId] = false;
             unchecked {
