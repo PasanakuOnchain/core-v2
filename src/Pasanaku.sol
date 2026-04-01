@@ -38,12 +38,13 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     error Pasanaku__InvalidLobbyParams();
     error Pasanaku__GameCancelled();
     error Pasanaku__CannotCancel();
+    error Pasanaku__InsufficientCollateralReserves();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTANTS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    uint256 private constant PROTOCOL_FEE = 0; // TODO: set protocol fee  0.000075 ether
+    uint256 private constant PROTOCOL_FEE = 0.000075 ether;
     uint256 private constant TOKEN_AMOUNT = 1;
     uint256 private constant MIN_PARTICIPANTS_COUNT = 2;
     uint256 private constant MAX_PARTICIPANTS_COUNT = 12;
@@ -138,8 +139,8 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                          STORAGE                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    mapping(uint256 => IPasanaku.RotatingSavings) private _rotatingSavings;
-    mapping(address => mapping(uint256 => bool)) private _deposited;
+    mapping(uint256 id => IPasanaku.RotatingSavings) private _rotatingSavings;
+    mapping(address participat => mapping(uint256 id => bool)) private _deposited;
     uint256 private _counter;
 
     mapping(address => mapping(address => uint256)) private _freeCollateral;
@@ -183,6 +184,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     function removeCollateral(address asset, uint256 amount) external nonReentrant {
         if (amount == 0) revert Pasanaku__InvalidAmount();
         if (_freeCollateral[msg.sender][asset] < amount) revert Pasanaku__InsufficientFreeCollateral();
+        if (_collateralReserves[asset] < amount) revert Pasanaku__InsufficientCollateralReserves();
 
         _ensureUnderlyingLiquidity(asset, amount);
         unchecked {
@@ -193,12 +195,12 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
         emit CollateralRemoved(msg.sender, asset, amount);
     }
 
-    function create(
-        address asset,
-        uint256 amount,
-        uint8 minParticipants,
-        uint8 maxParticipants
-    ) external payable nonReentrant returns (uint256 tokenId) {
+    function create(address asset, uint256 amount, uint8 minParticipants, uint8 maxParticipants)
+        external
+        payable
+        nonReentrant
+        returns (uint256 tokenId)
+    {
         if (amount == 0) revert Pasanaku__InvalidAmount();
         if (msg.value < PROTOCOL_FEE) revert Pasanaku__InsufficientFee();
         if (minParticipants > maxParticipants) revert Pasanaku__InvalidLobbyParams();
@@ -228,9 +230,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
             minParticipants: minParticipants,
             maxParticipants: maxParticipants
         });
-        emit LobbyCreated(
-            asset, amount, tokenId, msg.sender, timestamp, minParticipants, maxParticipants 
-        );
+        emit LobbyCreated(asset, amount, tokenId, msg.sender, timestamp, minParticipants, maxParticipants);
     }
 
     function join(uint256 tokenId) external payable nonReentrant {
