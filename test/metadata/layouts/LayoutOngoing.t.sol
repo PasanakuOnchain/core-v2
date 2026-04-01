@@ -50,8 +50,7 @@ contract LayoutOngoingTest is Test {
             creator: creator_,
             createdAt: block.timestamp,
             lastUpdatedAt: block.timestamp,
-            startsAt: block.timestamp,
-            cycleEpoch: block.timestamp,
+            minParticipants: 2,
             maxParticipants: 12
         });
     }

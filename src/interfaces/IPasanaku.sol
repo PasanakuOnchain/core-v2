@@ -17,8 +17,7 @@ interface IPasanaku {
         address creator;
         uint256 createdAt;
         uint256 lastUpdatedAt;
-        uint256 startsAt;
-        uint256 cycleEpoch;
+        uint8 minParticipants;
         uint8 maxParticipants;
     }
 }

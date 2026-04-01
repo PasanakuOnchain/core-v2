@@ -57,8 +57,7 @@ contract TokenDescriptorTest is Test {
             creator: creator_,
             createdAt: block.timestamp,
             lastUpdatedAt: block.timestamp,
-            startsAt: block.timestamp,
-            cycleEpoch: block.timestamp,
+            minParticipants: 2,
             maxParticipants: 12
         });
     }
@@ -203,7 +202,7 @@ contract TokenDescriptorTest is Test {
                 count++;
             }
         }
-        assertEq(count, 14, "Should have 14 trait entries");
+        assertEq(count, 12, "Should have 12 trait entries");
     }
 
     // -------------------------------------------------------------------------
