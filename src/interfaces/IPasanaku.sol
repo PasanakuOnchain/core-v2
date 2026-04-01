@@ -4,6 +4,11 @@ pragma solidity 0.8.33;
 /// @notice Shared struct for rotating savings data.
 /// @custom:security-contact https://x.com/rabuawad_
 interface IPasanaku {
+    function count() external view returns (uint256);
+    function increment() external;
+    function decrement() external;
+    function reset() external;
+
     struct RotatingSavings {
         address[] participants;
         address asset;
