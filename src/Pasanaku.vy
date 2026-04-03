@@ -1,12 +1,12 @@
 # pragma version ==0.4.3
-# pragma nonreentrancy off
+# pragma nonreentrancy on
 """
 @title `Pasanaku` - Rotating savings decentralized protocol
 @custom:contract-name Pasanaku
 @license GNU Affero General Public License v3.0 only
 @author Rafael Abuawad <x.com/rabuawad_>
 @notice This code is for testing purposes only, is not production ready and is not audited.
-        Everything is subject to change. Use at your own risk.
+        Everything is subject to change. Use at your own__interface__ risk.
 @custom:security-contact https://x.com/rabuawad_
 """
 
@@ -17,13 +17,13 @@
 from ethereum.ercs import IERC165
 implements: IERC165
 
-from ..lib.snekmate.src.snekmate.tokens.interfaces import IERC1155
+from snekmate.tokens.interfaces import IERC1155
 implements: IERC1155
 
-from ..lib.snekmate.src.snekmate.auth import ownable as ow
+from snekmate.auth import ownable as ow
 initializes: ow
 
-from ..lib.snekmate.src.snekmate.tokens import erc1155
+from snekmate.tokens import erc1155
 initializes: erc1155[ownable := ow]
 
 from ethereum.ercs import IERC20
@@ -32,7 +32,14 @@ from ethereum.ercs import IERC20
 #                           MODULES                            #
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 
-exports: erc1155.__interface__
+exports: (
+    erc1155.owner,
+    erc1155.supportsInterface,
+    erc1155.balanceOfBatch,
+    erc1155.exists,
+    erc1155.balanceOf,
+    erc1155.total_supply,
+)
 
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -40,10 +47,10 @@ exports: erc1155.__interface__
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 
 PROTOCOL_FEE: constant(uint256) = as_wei_value(0.000075, "ether")
-TOKEN_AMOUNT: constant(uint256) = 1
+MINT_TOKEN_AMOUNT: constant(uint256) = 1
 PARTICIPANTS_COUNT: constant(uint256) = 12
 CLAIM_GRACE_PERIOD: constant(uint256) = 10 * 24 * 60 * 60  # 10 days
-SUPPORTED_ASSETS_COUNT: constant(uint256) = 10
+SUPPORTED_ASSETS_COUNT: constant(uint256) = 3
 MIN_LOBBY_DEADLINE: constant(uint256) = 1 * 24 * 60 * 60  # 1 day
 MAX_START_DATE: constant(uint256) = 35 * 24 * 60 * 60  # 35 days
 
@@ -168,9 +175,6 @@ _supported_assets: immutable(address[SUPPORTED_ASSETS_COUNT])
 # @dev Next token id; monotonically increases on `create`.
 _counter: uint256
 
-# @dev Recipient of native protocol fees and `skim` transfers.
-_owner: address
-
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
 #                          INITIALIZER                         #
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
@@ -186,12 +190,10 @@ def __init__(supported_assets: address[SUPPORTED_ASSETS_COUNT]):
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 
 @external
-@nonreentrant
 def addCollateral(asset: address, amount: uint256):
     assert amount > 0, "pasanaku: invalid amount"
     assert asset in _supported_assets, "pasanaku: unsupported asset"
 
-    self._safeTransferFrom(msg.sender, self, asset, amount)
     self._free_collateral[msg.sender][asset] += amount
     self._collateral_reserves[asset] += amount
 
@@ -199,7 +201,6 @@ def addCollateral(asset: address, amount: uint256):
 
 
 @external
-@nonreentrant
 def removeCollateral(asset: address, amount: uint256):
     assert amount > 0, "pasanaku: invalid amount"
     assert asset in _supported_assets, "pasanaku: unsupported asset"
@@ -219,7 +220,6 @@ def removeCollateral(asset: address, amount: uint256):
 
 @external
 @payable
-@nonreentrant
 def create(asset: address, amount: uint256) -> uint256:
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert amount > 0, "pasanaku: invalid amount"
@@ -255,7 +255,6 @@ def create(asset: address, amount: uint256) -> uint256:
 
 @external
 @payable
-@nonreentrant
 def join(token_id: uint256):
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -278,7 +277,6 @@ def join(token_id: uint256):
 
 @external
 @payable
-@nonreentrant
 def leaveLobby(token_id: uint256):
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -293,7 +291,6 @@ def leaveLobby(token_id: uint256):
 
 @external
 @payable
-@nonreentrant
 def cancelLobby(token_id: uint256):
     assert msg.value > PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -305,13 +302,12 @@ def cancelLobby(token_id: uint256):
     for participant: address in rs.participants:
         self._locked_collateral[participant][token_id] = 0
         self._free_collateral[participant][rs.asset] += rs.amount
-        erc1155._burn(participant, token_id, TOKEN_AMOUNT)
+        erc1155._burn(participant, token_id, MINT_TOKEN_AMOUNT)
     self._rotating_savings[token_id].cancelled = True
     log LobbyCancelled(creator=msg.sender, tokenId=token_id)
 
 
 @external
-@nonreentrant
 def finalizeLobby(token_id: uint256):
     assert token_id <= self._counter, "pasanaku: invalid token id"
     rs: RotatingSavings = self._rotating_savings[token_id]
@@ -337,7 +333,6 @@ def finalizeLobby(token_id: uint256):
 
 @external
 @payable
-@nonreentrant
 def deposit(token_id: uint256) -> bool:
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -363,7 +358,6 @@ def deposit(token_id: uint256) -> bool:
 
 @external
 @payable
-@nonreentrant
 def claim(token_id: uint256) -> bool:
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -378,7 +372,6 @@ def claim(token_id: uint256) -> bool:
 
 @external
 @payable
-@nonreentrant
 def skip(token_id: uint256, destination: address) -> bool:
     assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert token_id <= self._counter, "pasanaku: invalid token id"
@@ -391,12 +384,96 @@ def skip(token_id: uint256, destination: address) -> bool:
 
 @external
 def collectProtocolFees():
-    send(self._owner, self.balance)
+    send(ow.owner, self.balance)
 
 
 @external
 def skim(asset: address, amount: uint256):
-    self._safeTransfer(self._owner, asset, amount)
+    if asset in _supported_assets:
+        balance: uint256 = staticcall IERC20(asset).balanceOf(self)
+        reserves: uint256 = self._collateral_reserves[asset]
+        diff: uint256 = balance - reserves
+        assert diff >= amount, "pasanaku: insufficient difference"
+
+    self._safeTransfer(ow.owner, asset, amount)
+
+
+@external
+def safeTransferFrom(owner: address, to: address, id: uint256, amount: uint256, data: Bytes[1024]):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+@external
+def safeBatchTransferFrom(owner: address, to: address, ids: DynArray[uint256, 128], amounts: DynArray[uint256, 128], data: Bytes[1024]):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+@external
+def setApprovalForAll(operator: address, approved: bool):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
+#                   EXTERNAL VIEW FUNCTIONS                    #
+#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
+@view
+@external
+def uri(id: uint256) -> String[512]:
+    rs: RotatingSavings = self._rotating_savings[id]
+    if rs.ended:
+        return "https://pasanaku.fun/pasanaku/ended"
+
+    if rs.cancelled:
+        return "https://pasanaku.fun/pasanaku/cancelled"
+
+    if rs.started:
+        return "https://pasanaku.fun/pasanaku/started"
+
+    return "https://pasanaku.fun/pasanaku/active"
+
+@view
+@external
+def isApprovedForAll(arg0: address, arg1: address) -> bool:
+    return False
+
+
+
+@external
+@view
+def protocolFee() -> uint256:
+    return PROTOCOL_FEE
+
+
+@external
+@view
+def supportedAssets() -> address[SUPPORTED_ASSETS_COUNT]:
+    return _supported_assets
+
+
+@external
+@view
+def rotatingSavings(token_id: uint256) -> RotatingSavings:
+    return self._rotating_savings[token_id]
+
+
+@external
+@view
+def canDeposit(participant: address, token_id: uint256) -> bool:
+    return self._canDeposit(participant, token_id)
+
+
+@external
+@view
+def canClaim(participant: address, token_id: uint256) -> bool:
+    return self._canClaim(participant, token_id)
+
+
+@external
+@view
+def canSkip(participant: address, token_id: uint256) -> bool:
+    return self._canClaim(participant, token_id)
+
 
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -508,39 +585,31 @@ def _safeTransfer(_to: address, asset: address, amount: uint256):
 
 @internal
 def _mint(owner: address, id: uint256):
-    """
-    @dev Creates `amount` tokens of token type `id` and
-         transfers them to `owner`, increasing the total
-         supply.
-    @notice Note that `owner` cannot be the zero address.
-    @param owner The 20-byte owner address.
-    @param id The 32-byte identifier of the token.
-    """
     assert owner != empty(address), "ERC1155Mock: mint to the zero address"
 
     erc1155._before_token_transfer(
         empty(address),
         owner,
         erc1155._as_singleton_array(id),
-        erc1155._as_singleton_array(TOKEN_AMOUNT),
+        erc1155._as_singleton_array(MINT_TOKEN_AMOUNT),
         b"",
     )
 
     erc1155.balanceOf[owner][id] = unsafe_add(
-        erc1155.balanceOf[owner][id], TOKEN_AMOUNT
+        erc1155.balanceOf[owner][id], MINT_TOKEN_AMOUNT
     )
     log IERC1155.TransferSingle(
         _operator=msg.sender,
         _from=empty(address),
         _to=owner,
         _id=id,
-        _value=TOKEN_AMOUNT,
+        _value=MINT_TOKEN_AMOUNT,
     )
 
     erc1155._after_token_transfer(
         empty(address),
         owner,
         erc1155._as_singleton_array(id),
-        erc1155._as_singleton_array(TOKEN_AMOUNT),
+        erc1155._as_singleton_array(MINT_TOKEN_AMOUNT),
         b"",
     )
