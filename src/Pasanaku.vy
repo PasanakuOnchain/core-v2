@@ -1,7 +1,38 @@
 # pragma version ==0.4.3
 # pragma nonreentrancy off
+"""
+@title `Pasanaku` - Rotating savings decentralized protocol
+@custom:contract-name Pasanaku
+@license GNU Affero General Public License v3.0 only
+@author Rafael Abuawad <x.com/rabuawad_>
+@notice This code is for testing purposes only, is not production ready and is not audited.
+        Everything is subject to change. Use at your own risk.
+@custom:security-contact https://x.com/rabuawad_
+"""
+
+#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
+#                           IMPORTS                            #
+#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
+from ethereum.ercs import IERC165
+implements: IERC165
+
+from ..lib.snekmate.src.snekmate.tokens.interfaces import IERC1155
+implements: IERC1155
+
+from ..lib.snekmate.src.snekmate.auth import ownable as ow
+initializes: ow
+
+from ..lib.snekmate.src.snekmate.tokens import erc1155
+initializes: erc1155[ownable := ow]
 
 from ethereum.ercs import IERC20
+
+#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
+#                           MODULES                            #
+#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
+exports: erc1155.__interface__
 
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -113,31 +144,31 @@ struct RotatingSavings:
 #                           STORAGE                            #
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 
-# @dev
+# @dev Lobby / round state keyed by ERC-1155 token id.
 _rotating_savings: HashMap[uint256, RotatingSavings]
 
-# @dev
+# @dev Whether a participant has deposited for the current round (per token id).
 _deposited: HashMap[address, HashMap[uint256, bool]]
 
-# @dev
+# @dev User collateral not locked in a lobby, per asset.
 _free_collateral: HashMap[address, HashMap[address, uint256]]
 
-# @dev
+# @dev Collateral locked while in a lobby, per user and token id.
 _locked_collateral: HashMap[address, HashMap[uint256, uint256]]
 
-# @dev
+# @dev Total collateral held by the protocol per asset.
 _collateral_reserves: HashMap[address, uint256]
 
-# @dev TODO: Where is this used?
+# @dev Per-asset pot from round deposits; reduced when a round is settled.
 _active_round_pools: HashMap[address, uint256]
 
-# dev
+# @dev Whitelisted ERC-20 assets set at deploy.
 _supported_assets: immutable(address[SUPPORTED_ASSETS_COUNT])
 
-# dev
+# @dev Next token id; monotonically increases on `create`.
 _counter: uint256
 
-# @dev
+# @dev Recipient of native protocol fees and `skim` transfers.
 _owner: address
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -145,6 +176,8 @@ _owner: address
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 @deploy
 def __init__(supported_assets: address[SUPPORTED_ASSETS_COUNT]):
+    ow.__init__()
+    erc1155.__init__("")
     _supported_assets = supported_assets
 
 
@@ -239,7 +272,7 @@ def join(token_id: uint256):
     self._free_collateral[msg.sender][rs.asset] -= rs.amount
     self._locked_collateral[msg.sender][token_id] += rs.amount
     self._rotating_savings[token_id].participants.append(msg.sender)
-    # TODO: IMplement ERC1155 mint
+
     log Joined(account=msg.sender, tokenId=token_id)
 
 
@@ -272,7 +305,7 @@ def cancelLobby(token_id: uint256):
     for participant: address in rs.participants:
         self._locked_collateral[participant][token_id] = 0
         self._free_collateral[participant][rs.asset] += rs.amount
-        # TODO: burn ERC1155
+        erc1155._burn(participant, token_id, TOKEN_AMOUNT)
     self._rotating_savings[token_id].cancelled = True
     log LobbyCancelled(creator=msg.sender, tokenId=token_id)
 
@@ -289,9 +322,12 @@ def finalizeLobby(token_id: uint256):
     ), "pasanaku: insufficient participants"
 
     self._shuffleParticipants(token_id)
-
     self._rotating_savings[token_id].started = True
     self._rotating_savings[token_id].lastUpdatedAt = block.timestamp
+
+    for participant: address in rs.participants:
+        self._mint(participant, token_id)
+
     log LobbyFinalized(
         tokenId=token_id,
         participants=rs.participants,
@@ -358,6 +394,11 @@ def collectProtocolFees():
     send(self._owner, self.balance)
 
 
+@external
+def skim(asset: address, amount: uint256):
+    self._safeTransfer(self._owner, asset, amount)
+
+
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
 #                      INTERNAL FUNCTIONS                      #
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
@@ -395,7 +436,9 @@ def _applyRound(rs: RotatingSavings, destination: address, is_claim: bool):
     amount_to_pay: uint256 = rs.totalDeposited
     current_index: uint256 = rs.currentIndex
     asset: address = rs.asset
-    assert self._collateral_reserves[asset] >= amount_to_pay, "pasanaku: insufficient free collateral"
+    assert (
+        self._collateral_reserves[asset] >= amount_to_pay
+    ), "pasanaku: insufficient free collateral"
 
     self._active_round_pools[asset] -= amount_to_pay
     self._rotating_savings[rs.tokenId].lastUpdatedAt = block.timestamp
@@ -461,3 +504,43 @@ def _safeTransfer(_to: address, asset: address, amount: uint256):
     extcall IERC20(asset).transfer(_to, amount)
     ending: uint256 = staticcall IERC20(asset).balanceOf(_to)
     assert initial - amount == ending, "pasanku: transfer failed"
+
+
+@internal
+def _mint(owner: address, id: uint256):
+    """
+    @dev Creates `amount` tokens of token type `id` and
+         transfers them to `owner`, increasing the total
+         supply.
+    @notice Note that `owner` cannot be the zero address.
+    @param owner The 20-byte owner address.
+    @param id The 32-byte identifier of the token.
+    """
+    assert owner != empty(address), "ERC1155Mock: mint to the zero address"
+
+    erc1155._before_token_transfer(
+        empty(address),
+        owner,
+        erc1155._as_singleton_array(id),
+        erc1155._as_singleton_array(TOKEN_AMOUNT),
+        b"",
+    )
+
+    erc1155.balanceOf[owner][id] = unsafe_add(
+        erc1155.balanceOf[owner][id], TOKEN_AMOUNT
+    )
+    log IERC1155.TransferSingle(
+        _operator=msg.sender,
+        _from=empty(address),
+        _to=owner,
+        _id=id,
+        _value=TOKEN_AMOUNT,
+    )
+
+    erc1155._after_token_transfer(
+        empty(address),
+        owner,
+        erc1155._as_singleton_array(id),
+        erc1155._as_singleton_array(TOKEN_AMOUNT),
+        b"",
+    )
