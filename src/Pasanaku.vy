@@ -55,8 +55,8 @@ event LobbyFinalized:
 
 
 event LobbyCancelled:
-    tokenId: indexed(uint256)
     creator: indexed(address)
+    tokenId: indexed(uint256)
 
 
 event Joined:
@@ -205,9 +205,9 @@ def removeCollateral(asset: address, amount: uint256):
 @payable
 @nonreentrant
 def create(asset: address, amount: uint256) -> uint256:
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
     assert amount > 0, "pasanaku: invalid amount"
     assert asset in _supported_assets, "pasanaku: unsupported asset"
-    assert msg.value > PROTOCOL_FEE, "pasanaku: insufficient fee"
 
     token_id: uint256 = self._counter
     self._counter += 1
@@ -237,9 +237,97 @@ def create(asset: address, amount: uint256) -> uint256:
     return token_id
 
 
+@external
+@payable
+@nonreentrant
+def join(token_id: uint256):
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    assert not rs.cancelled, "pasanaku: lobby cancelled"
+    assert not rs.started, "pasanaku: lobby already starded"
+    assert msg.sender not in rs.participants, "pasanaku: caller already joined"
+    assert len(rs.participants) < PARTICIPANTS_COUNT, "pasanaku: lobby full"
+    assert self._free_collateral[msg.sender][rs.asset] < rs.amount, "pasanaku: insufficient collateral"
+
+    self._free_collateral[msg.sender][rs.asset] -= rs.amount
+    self._locked_collateral[msg.sender][token_id] += rs.amount
+    self._rotating_savings[token_id].participants.append(msg.sender)
+    # TODO: IMplement ERC1155 mint
+    log Joined(account=msg.sender, tokenId=token_id)
+
+
+@external
+@payable
+@nonreentrant
+def leaveLobby(token_id: uint256):
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    assert not rs.cancelled, "pasanaku: lobby cancelled"
+    assert not rs.started, "pasanaku: lobby already starded"
+    assert msg.sender in rs.participants, "pasanaku: caller cannot leave lobby"
+
+    self._removeParticipant(token_id, msg.sender)
+    log LeftLobby(account=msg.sender, tokenId=token_id)
+
+
+@external
+@payable
+@nonreentrant
+def cancelLobby(token_id: uint256):
+    assert msg.value > PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    assert not rs.started, "pasanaku: already started"
+    assert not rs.cancelled, "pasanaku: already cancelled"
+    assert rs.creator == msg.sender, "pasanku: cannot cancel lobby"
+
+    for participant: address in rs.participants:
+        self._locked_collateral[participant][token_id] = 0
+        self._free_collateral[participant][rs.asset] += rs.amount
+        # TODO: burn ERC1155
+
+    self._rotating_savings[token_id].cancelled = True
+    log LobbyCancelled(creator=msg.sender, tokenId=token_id)
+
+
+@external
+@nonreentrant
+def finalizeLobby(token_id: uint256):
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    assert not rs.started, "pasanaku: already started"
+    assert not rs.cancelled, "pasanaku: already cancelled"
+    assert len(rs.participants) == PARTICIPANTS_COUNT, "pasanaku: insufficient participants"
+
+    self._shuffleParticipants(token_id)
+
+    self._rotating_savings[token_id].started = True
+    self._rotating_savings[token_id].lastUpdatedAt = block.timestamp
+    log LobbyFinalized(tokenId=token_id, participants=rs.participants, finalizedAt=block.timestamp)
+
+
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
 #                      INTERNAL FUNCTIONS                      #
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
+@internal
+def _removeParticipant(token_id: uint256, participant: address):
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    idx: uint256 = len(rs.participants) - 1
+    last_participant: address = rs.participants[idx]
+    for i: uint256 in range(len(rs.participants), bound=PARTICIPANTS_COUNT): 
+        if rs.participants[i] == participant:
+            self._rotating_savings[token_id].participants[i] = last_participant
+    self._rotating_savings[token_id].participants.pop()
+
+
+@internal
+def _shuffleParticipants(token_id: uint256):
+    pass
+
 
 @internal
 def _safeTransferFrom(
