@@ -5,9 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {Pasanaku} from "pasanaku/Pasanaku.sol";
 import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
-import {TokenDescriptor} from "pasanaku/metadata/TokenDescriptor.sol";
-import {LayoutEnded} from "pasanaku/metadata/layouts/LayoutEnded.sol";
-import {LayoutOngoing} from "pasanaku/metadata/layouts/LayoutOngoing.sol";
 import {MockERC20} from "tests/_mocks/MockERC20.sol";
 import {ReentrantMockERC20} from "tests/_mocks/ReentrantMockERC20.sol";
 
@@ -33,9 +30,6 @@ contract PasanakuTest is Test {
     event Ended(uint256 indexed tokenId, uint256 lastUpdatedAt);
 
     Pasanaku public pasanaku;
-    TokenDescriptor public tokenDescriptor;
-    LayoutEnded public layoutEnded;
-    LayoutOngoing public layoutOngoing;
     MockERC20 public token;
     uint256 public fee;
 
@@ -71,12 +65,8 @@ contract PasanakuTest is Test {
             assets[i] = address(0);
         }
 
-        layoutEnded = new LayoutEnded();
-        layoutOngoing = new LayoutOngoing();
-        tokenDescriptor = new TokenDescriptor(address(layoutEnded), address(layoutOngoing));
-
         vm.prank(owner);
-        pasanaku = new Pasanaku(assets, address(tokenDescriptor));
+        pasanaku = new Pasanaku(assets);
         fee = pasanaku.protocolFee();
     }
 
@@ -122,7 +112,6 @@ contract PasanakuTest is Test {
 
     function test_constructor_setsOwnerAndSupportedAssets() public view {
         assertEq(pasanaku.owner(), owner);
-        assertEq(pasanaku.tokenDescriptor(), address(tokenDescriptor));
         address[SUPPORTED_ASSETS_COUNT] memory assets = pasanaku.supportedAssets();
         assertEq(assets[0], address(token));
     }
@@ -484,12 +473,6 @@ contract PasanakuTest is Test {
         assertFalse(pasanaku.canClaim(ben1, tid));
     }
 
-    function test_uri_matchesTokenDescriptor() public {
-        uint256 tid = _startTwoPlayerGame();
-        IPasanaku.RotatingSavings memory rs = pasanaku.rotatingSavings(tid);
-        assertEq(pasanaku.uri(tid), tokenDescriptor.tokenURI(rs));
-    }
-
     function test_uri_returnsJsonDataUriPrefix() public {
         uint256 tid = _startTwoPlayerGame();
         string memory u = pasanaku.uri(tid);
@@ -513,7 +496,7 @@ contract PasanakuTest is Test {
         }
 
         vm.prank(owner);
-        Pasanaku p = new Pasanaku(assets, address(tokenDescriptor));
+        Pasanaku p = new Pasanaku(assets);
 
         vm.prank(owner);
         p.create{value: fee}(address(reToken), AMOUNT, 2, 2);

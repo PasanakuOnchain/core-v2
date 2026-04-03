@@ -1,26 +1,7 @@
 # pragma version ==0.4.3
 # pragma nonreentrancy off
 
-# NOTE: Updating the signature, removing min and max participants
-
 from ethereum.ercs import IERC20
-
-count: public(uint256)
-
-
-@external
-def increment():
-    self.count += 1
-
-
-@external
-def decrement():
-    self.count -= 1
-
-
-@external
-def reset():
-    self.count = 0
 
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -156,6 +137,8 @@ _supported_assets: immutable(address[SUPPORTED_ASSETS_COUNT])
 # dev
 _counter: uint256
 
+# @dev
+_owner: address
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
 #                          INITIALIZER                         #
@@ -249,7 +232,9 @@ def join(token_id: uint256):
     assert not rs.started, "pasanaku: lobby already starded"
     assert msg.sender not in rs.participants, "pasanaku: caller already joined"
     assert len(rs.participants) < PARTICIPANTS_COUNT, "pasanaku: lobby full"
-    assert self._free_collateral[msg.sender][rs.asset] < rs.amount, "pasanaku: insufficient collateral"
+    assert (
+        self._free_collateral[msg.sender][rs.asset] < rs.amount
+    ), "pasanaku: insufficient collateral"
 
     self._free_collateral[msg.sender][rs.asset] -= rs.amount
     self._locked_collateral[msg.sender][token_id] += rs.amount
@@ -288,7 +273,6 @@ def cancelLobby(token_id: uint256):
         self._locked_collateral[participant][token_id] = 0
         self._free_collateral[participant][rs.asset] += rs.amount
         # TODO: burn ERC1155
-
     self._rotating_savings[token_id].cancelled = True
     log LobbyCancelled(creator=msg.sender, tokenId=token_id)
 
@@ -300,13 +284,78 @@ def finalizeLobby(token_id: uint256):
     rs: RotatingSavings = self._rotating_savings[token_id]
     assert not rs.started, "pasanaku: already started"
     assert not rs.cancelled, "pasanaku: already cancelled"
-    assert len(rs.participants) == PARTICIPANTS_COUNT, "pasanaku: insufficient participants"
+    assert (
+        len(rs.participants) == PARTICIPANTS_COUNT
+    ), "pasanaku: insufficient participants"
 
     self._shuffleParticipants(token_id)
 
     self._rotating_savings[token_id].started = True
     self._rotating_savings[token_id].lastUpdatedAt = block.timestamp
-    log LobbyFinalized(tokenId=token_id, participants=rs.participants, finalizedAt=block.timestamp)
+    log LobbyFinalized(
+        tokenId=token_id,
+        participants=rs.participants,
+        finalizedAt=block.timestamp,
+    )
+
+
+@external
+@payable
+@nonreentrant
+def deposit(token_id: uint256) -> bool:
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    assert self._canDeposit(msg.sender, token_id), "pasanaku: cannot deposit"
+
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    self._rotating_savings[token_id].lastUpdatedAt = block.timestamp
+    self._rotating_savings[token_id].totalDeposited += rs.amount
+    self._deposited[msg.sender][token_id] = True
+    self._active_round_pools[rs.asset] += rs.amount
+
+    self._safeTransferFrom(msg.sender, self, rs.asset, rs.amount)
+
+    log Deposited(
+        participant=msg.sender,
+        tokenId=token_id,
+        index=rs.currentIndex,
+        amount=rs.amount,
+        totalDeposited=rs.totalDeposited + rs.amount,
+    )
+    return True
+
+
+@external
+@payable
+@nonreentrant
+def claim(token_id: uint256) -> bool:
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    assert self._canClaim(msg.sender, token_id), "pasanaku: cannot claim"
+
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    beneficiary: address = rs.participants[rs.currentIndex]
+
+    self._applyRound(rs, beneficiary, True)
+    return True
+
+
+@external
+@payable
+@nonreentrant
+def skip(token_id: uint256, destination: address) -> bool:
+    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
+    assert token_id <= self._counter, "pasanaku: invalid token id"
+    assert self._canClaim(msg.sender, token_id), "pasanaku: cannot claim"
+
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    self._applyRound(rs, destination, False)
+    return True
+
+
+@external
+def collectProtocolFees():
+    send(self._owner, self.balance)
 
 
 #*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
@@ -314,11 +363,78 @@ def finalizeLobby(token_id: uint256):
 #*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
 
 @internal
+@view
+def _canDeposit(participant: address, token_id: uint256) -> bool:
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    return (
+        not rs.ended
+        and not rs.cancelled
+        and rs.started
+        and participant in rs.participants
+        and participant != rs.participants[rs.currentIndex]
+        and not self._deposited[participant][token_id]
+    )
+
+
+@internal
+@view
+def _canClaim(participant: address, token_id: uint256) -> bool:
+    rs: RotatingSavings = self._rotating_savings[token_id]
+    return (
+        not rs.ended
+        and not rs.cancelled
+        and rs.started
+        and participant in rs.participants
+        and participant == rs.participants[rs.currentIndex]
+        and block.timestamp - rs.lastUpdatedAt < CLAIM_GRACE_PERIOD
+    )
+
+
+@internal
+def _applyRound(rs: RotatingSavings, destination: address, is_claim: bool):
+    amount_to_pay: uint256 = rs.totalDeposited
+    current_index: uint256 = rs.currentIndex
+    asset: address = rs.asset
+    assert self._collateral_reserves[asset] >= amount_to_pay, "pasanaku: insufficient free collateral"
+
+    self._active_round_pools[asset] -= amount_to_pay
+    self._rotating_savings[rs.tokenId].lastUpdatedAt = block.timestamp
+    self._rotating_savings[rs.tokenId].currentIndex = rs.currentIndex + 1
+    self._rotating_savings[rs.tokenId].totalDeposited = 0
+    self._rotating_savings[rs.tokenId].ended = rs.currentIndex + 1 >= len(
+        rs.participants
+    )
+
+    self._safeTransfer(destination, asset, amount_to_pay)
+    if rs.ended:
+        for participant: address in rs.participants:
+            self._locked_collateral[participant][rs.tokenId] -= rs.amount
+            self._free_collateral[participant][rs.asset] += rs.amount
+        log Ended(tokenId=rs.tokenId, lastUpdatedAt=block.timestamp)
+
+    if is_claim:
+        log Claimed(
+            participant=destination,
+            tokenId=rs.tokenId,
+            index=rs.currentIndex,
+            amount=amount_to_pay,
+            totalDeposited=rs.totalDeposited,
+        )
+    else:
+        log Skipped(
+            destination=destination,
+            tokenId=rs.tokenId,
+            index=rs.currentIndex,
+            amount=amount_to_pay,
+        )
+
+
+@internal
 def _removeParticipant(token_id: uint256, participant: address):
     rs: RotatingSavings = self._rotating_savings[token_id]
     idx: uint256 = len(rs.participants) - 1
     last_participant: address = rs.participants[idx]
-    for i: uint256 in range(len(rs.participants), bound=PARTICIPANTS_COUNT): 
+    for i: uint256 in range(len(rs.participants), bound=PARTICIPANTS_COUNT):
         if rs.participants[i] == participant:
             self._rotating_savings[token_id].participants[i] = last_participant
     self._rotating_savings[token_id].participants.pop()

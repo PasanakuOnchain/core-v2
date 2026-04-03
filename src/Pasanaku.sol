@@ -6,7 +6,6 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
-import {ITokenDescriptor} from "pasanaku/interfaces/ITokenDescriptor.sol";
 
 /// @title Pasanaku - Rotating savings decentralized protocol
 /// @author Rafael Abuawad <x.com/rabuawad_>
@@ -53,12 +52,6 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     uint256 private constant MIN_LOBBY_DEADLINE = 1 days;
     uint256 private constant MAX_START_DATE = 10 days;
     uint256 private constant DAYS_30 = 30 days;
-
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                         IMMUTABLES                         */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    ITokenDescriptor private immutable TOKEN_DESCRIPTOR;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           EVENTS                           */
@@ -154,7 +147,7 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                         CONSTRUCTOR                        */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    constructor(address[SUPPORTED_ASSETS_COUNT] memory supportedAssets_, address _tokenDescriptor) {
+    constructor(address[SUPPORTED_ASSETS_COUNT] memory supportedAssets_) {
         _initializeOwner(msg.sender);
         for (uint256 i; i < SUPPORTED_ASSETS_COUNT;) {
             _supportedAssets[i] = supportedAssets_[i];
@@ -162,7 +155,6 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
                 ++i;
             }
         }
-        TOKEN_DESCRIPTOR = ITokenDescriptor(_tokenDescriptor);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -380,10 +372,6 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                        VIEW FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function tokenDescriptor() external view returns (address) {
-        return address(TOKEN_DESCRIPTOR);
-    }
-
     function rotatingSavings(uint256 tokenId) external view returns (IPasanaku.RotatingSavings memory) {
         return _rotatingSavings[tokenId];
     }
@@ -450,9 +438,8 @@ contract Pasanaku is ERC1155, Ownable, ReentrancyGuardTransient {
     /*                         OVERRIDES                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function uri(uint256 tokenId) public view override returns (string memory) {
-        IPasanaku.RotatingSavings storage rs = _rotatingSavings[tokenId];
-        return TOKEN_DESCRIPTOR.tokenURI(rs);
+    function uri(uint256) public pure override returns (string memory) {
+        return "";
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/

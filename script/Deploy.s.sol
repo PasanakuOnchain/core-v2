@@ -3,20 +3,18 @@ pragma solidity 0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {Pasanaku} from "pasanaku/Pasanaku.sol";
-import {TokenDescriptor} from "pasanaku/metadata/TokenDescriptor.sol";
-import {LayoutEnded} from "pasanaku/metadata/layouts/LayoutEnded.sol";
-import {LayoutOngoing} from "pasanaku/metadata/layouts/LayoutOngoing.sol";
+import {IPasanaku} from "pasanaku/interfaces/IPasanaku.sol";
 
 /// @title Deploy
-/// @notice Deploys TokenDescriptor (with layouts) and Pasanaku with modular asset configuration.
+/// @notice Deploys Pasanaku with modular asset configuration.
 /// @dev Set ASSETS env var: comma-separated ERC20 addresses (up to 10 supported).
 ///      Example: ASSETS=0x123...,0x456...,0x789...
 ///      Unused slots are padded with address(0).
 contract Deploy is Script {
     uint256 private constant SUPPORTED_ASSETS_COUNT = 10;
+    IPasanaku public pasanaku;
 
-    function run() public returns (address pasanaku) {
+    function run() public returns (IPasanaku) {
         address[] memory assetsRaw = vm.envAddress("ASSETS", ",");
         require(assetsRaw.length <= SUPPORTED_ASSETS_COUNT, "Deploy: max 10 assets supported");
 
@@ -29,19 +27,11 @@ contract Deploy is Script {
         }
 
         vm.startBroadcast();
-
-        LayoutEnded layoutEnded = new LayoutEnded();
-        LayoutOngoing layoutOngoing = new LayoutOngoing();
-        TokenDescriptor tokenDescriptor = new TokenDescriptor(address(layoutEnded), address(layoutOngoing));
-        pasanaku = address(new Pasanaku(assets, address(tokenDescriptor)));
-
+        pasanaku = IPasanaku(deployCode("src/Pasanaku.vy", abi.encode(assets)));
         vm.stopBroadcast();
 
-        console.log("Deployed LayoutEnded at", address(layoutEnded));
-        console.log("Deployed LayoutOngoing at", address(layoutOngoing));
-        console.log("Deployed TokenDescriptor at", address(tokenDescriptor));
-        console.log("Deployed Pasanaku at", pasanaku);
-        console.log("  Owner:", Pasanaku(payable(pasanaku)).owner());
+        console.log("Deployed Pasanaku at", address(pasanaku));
+        console.log(" Owner:", pasanaku.owner());
         for (uint256 i; i < assetsRaw.length;) {
             console.log("  Asset", i, ":", assets[i]);
             unchecked {
