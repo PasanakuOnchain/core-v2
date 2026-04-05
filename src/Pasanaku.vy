@@ -173,6 +173,7 @@ def addCollateral(asset: address, amount: uint256):
     assert amount > 0, "pasanaku: invalid amount"
     assert asset in _supported_assets, "pasanaku: unsupported asset"
 
+    self._safeTransferFrom(msg.sender, self, asset, amount)
     self._free_collateral[msg.sender][asset] += amount
     self._collateral_reserves[asset] += amount
 
@@ -367,6 +368,24 @@ def uri(id: uint256) -> String[512]:
 
 @view
 @external
+def collateralReserves(asset: address) -> uint256:
+    return self._collateral_reserves[asset]
+
+
+@view
+@external
+def freeCollateral(account: address, asset: address) -> uint256:
+    return self._free_collateral[account][asset]
+
+
+@view
+@external
+def lockedCollateral(account: address, token_id: uint256) -> uint256:
+    return self._locked_collateral[account][token_id]
+
+
+@view
+@external
 def isApprovedForAll(arg0: address, arg1: address) -> bool:
     return False
 
@@ -527,7 +546,7 @@ def _safeTransferFrom(
     initial: uint256 = staticcall IERC20(asset).balanceOf(_to)
     extcall IERC20(asset).transferFrom(_from, _to, amount)
     ending: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    assert initial - amount == ending, "pasanku: transferFrom failed"
+    assert initial + amount == ending, "pasanku: transferFrom failed"
 
 
 @internal
@@ -535,7 +554,7 @@ def _safeTransfer(_to: address, asset: address, amount: uint256):
     initial: uint256 = staticcall IERC20(asset).balanceOf(_to)
     extcall IERC20(asset).transfer(_to, amount)
     ending: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    assert initial - amount == ending, "pasanku: transfer failed"
+    assert initial + amount == ending, "pasanku: transfer failed"
 
 
 @internal

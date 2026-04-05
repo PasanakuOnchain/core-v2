@@ -8,7 +8,7 @@ def deploy() -> VyperContract:
         "0x1234567890123456789012345678901234567890",
         "0x1234567890123456789012345678901234567890",
     ]
-    
+
     pasanaku_contract: VyperContract = pasanaku.deploy(tokens)
     return pasanaku_contract
 
