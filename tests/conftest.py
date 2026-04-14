@@ -4,6 +4,9 @@ from src import pasanaku
 from src._mocks import erc20_mock
 
 
+LOBBY_AMOUNT = 100 * 10**6
+
+
 @pytest.fixture
 def owner():
     initial_balance = int(10**18)
@@ -87,3 +90,48 @@ def tokens(usdc_contract, usdt_contract, weth_contract):
 def pasanaku_contract(owner, usdc_contract, usdt_contract, weth_contract):
     with boa.env.prank(owner):
         return pasanaku.deploy([usdc_contract, usdt_contract, weth_contract])
+
+
+@pytest.fixture
+def protocol_fee():
+    return int(0.000075 * 10**18)
+
+
+@pytest.fixture
+def lobby_amount():
+    return LOBBY_AMOUNT
+
+
+@pytest.fixture
+def funded_users(users, owner, usdc_contract, pasanaku_contract):
+    collateral_per_user = LOBBY_AMOUNT * 11
+    for user in users:
+        with boa.env.prank(owner):
+            usdc_contract.mint(user, collateral_per_user)
+        with boa.env.prank(user):
+            usdc_contract.approve(pasanaku_contract.address, collateral_per_user)
+            pasanaku_contract.addCollateral(usdc_contract.address, collateral_per_user)
+    return users
+
+
+@pytest.fixture
+def lobby_id(pasanaku_contract, owner, usdc_contract, protocol_fee):
+    with boa.env.prank(owner):
+        return pasanaku_contract.create(
+            usdc_contract.address, LOBBY_AMOUNT, value=protocol_fee
+        )
+
+
+@pytest.fixture
+def full_lobby(pasanaku_contract, funded_users, lobby_id, protocol_fee):
+    for user in funded_users:
+        with boa.env.prank(user):
+            pasanaku_contract.join(lobby_id, value=protocol_fee)
+    return lobby_id
+
+
+@pytest.fixture
+def started_lobby(pasanaku_contract, full_lobby, funded_users):
+    with boa.env.prank(funded_users[0]):
+        pasanaku_contract.finalizeLobby(full_lobby)
+    return full_lobby

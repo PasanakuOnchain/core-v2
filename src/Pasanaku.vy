@@ -6,7 +6,7 @@
 @license GNU Affero General Public License v3.0 only
 @author Rafael Abuawad <x.com/rabuawad_>
 @notice This code is for testing purposes only, is not production ready and is not audited.
-        Everything is subject to change. Use at your own__interface__ risk.
+        Everything is subject to change. Use at your own risk.
 @custom:security-contact https://x.com/rabuawad_
 """
 
@@ -240,7 +240,7 @@ def join(token_id: uint256):
     free_collateral: uint256 = self._free_collateral[msg.sender][rs.asset]
     assert free_collateral >= rs.amount, "pasanaku: insufficient collateral"
 
-    amount_to_pay: uint256 = rs.amount * (len(rs.participants) - 1)
+    amount_to_pay: uint256 = rs.amount * (PARTICIPANTS_COUNT - 1)
     self._free_collateral[msg.sender][rs.asset] -= amount_to_pay
     self._locked_collateral[msg.sender][token_id] += amount_to_pay
     self._rotating_savings[token_id].participants.append(msg.sender)
@@ -559,7 +559,7 @@ def _safeTransfer(_to: address, asset: address, amount: uint256):
 
 @internal
 def _mint(owner: address, id: uint256):
-    assert owner != empty(address), "ERC1155Mock: mint to the zero address"
+    assert owner != empty(address), "pasanaku: mint to the zero address"
 
     erc1155._before_token_transfer(
         empty(address),
