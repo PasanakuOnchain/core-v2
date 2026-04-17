@@ -1,0 +1,11 @@
+# pragma version ==0.4.3
+"""
+@title `IPasanaku` - Pasanaku interface
+@custom:contract-name IPasanaku
+@license GNU Affero General Public License v3.0 only
+@author Rafael Abuawad <x.com/rabuawad_>
+"""
+
+event PasanakuCreated:
+    asset: indexed(address)
+    amount: uint256

@@ -2,8 +2,8 @@ import boa
 from hypothesis import HealthCheck, given, settings
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 import hypothesis.strategies as st
-from src import pasanaku
-from src._mocks import erc20_mock
+from src import Pasanaku as pasanaku
+from tests._mocks import erc20_mock
 from tests.helpers import mint_token
 
 USERS_COUNT = 3
