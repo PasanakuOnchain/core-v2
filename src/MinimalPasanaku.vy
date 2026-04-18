@@ -89,10 +89,18 @@ def deposit(
 ):
     assert amount > 0  # dev: invalid amount
     self._deposited[msg.sender][asset] += amount
-    extcall IERC20(asset).transferFrom(msg.sender, self, amount)
 
     if pasanaku_id != empty(uint256) and tick_index != empty(uint256):
-        self._deposited_for_token[pasanaku_id][tick_index][msg.sender] = True
+        self._deposit_for_token(msg.sender, amount, pasanaku_id, tick_index)
+
+    extcall IERC20(asset).transferFrom(msg.sender, self, amount)
+
+    log IPasanaku.CollateralDeposited(
+        account=msg.sender,
+        asset=asset,
+        amount=amount,
+        balance_after=self._deposited[msg.sender][asset],
+    )
 
 
 @external
@@ -106,6 +114,13 @@ def withdraw(asset: address, amount: uint256):
 
     self._deposited[msg.sender][asset] -= amount
     extcall IERC20(asset).transfer(msg.sender, amount)
+
+    log IPasanaku.CollateralWithdrawn(
+        account=msg.sender,
+        asset=asset,
+        amount=amount,
+        balance_after=self._deposited[msg.sender][asset],
+    )
 
 
 @external
@@ -125,6 +140,12 @@ def create_pasanaku(asset: address, amount: uint256) -> uint256:
         ended=empty(uint256),
     )
     self._pending_pasanakus[index] = pasanaku
+
+    log IPasanaku.PasanakuCreated(
+        pending_index=index,
+        asset=asset,
+        amount=amount,
+    )
     return index
 
 
@@ -145,12 +166,18 @@ def join_pasanaku(index: uint256):
     if len(pasanaku.participants) == PARTICIPANT_COUNT:
         self._start_pasanaku(index)
 
+    log IPasanaku.PasanakuJoined(
+        account=msg.sender,
+        pending_index=index,
+        participant_count=len(pasanaku.participants),
+    )
+
 
 @external
 def tick(token_id: uint256):
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
-    assert pasanaku.ended != empty(uint256)  # dev: pasanaku ended
+    assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
     assert pasanaku.updated + DAYS_30 <= block.timestamp  # dev: not enough time passed # nosplit
 
     index: uint256 = self._active_participant[token_id]
@@ -161,9 +188,20 @@ def tick(token_id: uint256):
 
     if index == PARTICIPANT_COUNT - 1:
         pasanaku.ended = block.timestamp
-        # TODO: emit event
+
     pasanaku.updated = block.timestamp
     self._pasanakus[token_id] = pasanaku
+
+    log IPasanaku.PasanakuTicked(
+        token_id=token_id,
+        tick_index=index,
+        recipient=participant,
+        asset=pasanaku.asset,
+        amount=pasanaku.amount,
+        updated_at=block.timestamp,
+        ended=index == PARTICIPANT_COUNT - 1,
+    )
+
 
 @external
 @view
@@ -191,8 +229,12 @@ def collateral_in_use(participant: address, asset: address) -> uint256:
 
 @external
 @view
-def deposited_for_token(pasanaku_id: uint256, tick_index: uint256, participant: address) -> bool:
+def deposited_for_token(
+    pasanaku_id: uint256, tick_index: uint256, participant: address
+) -> bool:
     return self._deposited_for_token[pasanaku_id][tick_index][participant]
+
+
 @external
 @view
 def participant_count() -> uint256:
@@ -203,6 +245,31 @@ def participant_count() -> uint256:
 @external
 def supported_assets() -> address[SUPPORTED_ASSETS_COUNT]:
     return SUPPORTED_ASSETS
+
+
+@internal
+def _deposit_for_token(
+    participant: address,
+    amount: uint256,
+    pasanaku_id: uint256,
+    tick_index: uint256,
+):
+    pasanaku: Pasanaku = self._pasanakus[pasanaku_id]
+    assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
+    assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
+    assert participant in pasanaku.participants  # dev: participant not in pasanaku # nosplit
+    assert not self._deposited_for_token[pasanaku_id][tick_index][participant]  # dev: already deposited # nosplit
+    assert amount >= pasanaku.amount  # dev: insufficient amount
+
+    self._deposited_for_token[pasanaku_id][tick_index][participant] = True
+
+    log IPasanaku.TickDepositMarked(
+        participant=participant,
+        pasanaku_id=pasanaku_id,
+        tick_index=tick_index,
+        asset=pasanaku.asset,
+        amount=amount,
+    )
 
 
 @internal
@@ -219,6 +286,14 @@ def _start_pasanaku(index: uint256):
 
     for participant: address in pasanaku.participants:
         erc1155._safe_mint(participant, pasanaku_id, TOKEN_MINT_AMOUNT, b"")
+
+    log IPasanaku.PasanakuStarted(
+        token_id=pasanaku_id,
+        pending_index=index,
+        asset=pasanaku.asset,
+        amount=pasanaku.amount,
+        started_at=block.timestamp,
+    )
 
 
 @internal
