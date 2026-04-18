@@ -1,5 +1,5 @@
 from typing import List
-from tests._mocks import erc20_mock
+from tests.mocks import erc20_mock
 from moccasin.boa_tools import VyperContract
 
 mock_tokens = [

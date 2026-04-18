@@ -4,40 +4,58 @@ from src import Pasanaku as pasanaku
 from tests.mocks import erc20_mock
 
 
-LOBBY_AMOUNT = 100 * 10**6
+BASE_URI = "https://pasanaku.fun/metadata/"
+PASANAKU_AMOUNT_RAW = 100 * 10**6
+DAYS_30 = 30 * 24 * 60 * 60
+
+
+def token_id_from_last_started(pasanaku_contract):
+    for log in reversed(pasanaku_contract.get_logs()):
+        if type(log).__name__ == "PasanakuStarted":
+            return log.token_id
+    raise RuntimeError("PasanakuStarted log not found")
+
+
+def fund_and_join_all(pasanaku_contract, asset, owner, users, amount_raw, pending_idx):
+    need = amount_raw * 12
+    for u in users:
+        with boa.env.prank(owner):
+            asset.mint(u, need)
+        with boa.env.prank(u):
+            asset.approve(pasanaku_contract.address, need)
+            pasanaku_contract.deposit(asset.address, need, 0, 0)
+    for u in users:
+        with boa.env.prank(u):
+            pasanaku_contract.join_pasanaku(pending_idx)
 
 
 @pytest.fixture
 def owner():
-    initial_balance = int(10**18)
     addr = boa.env.generate_address()
-    boa.env.set_balance(addr, initial_balance)
-    return addr
-
-
-@pytest.fixture
-def bob():
-    initial_balance = int(10**18)
-    addr = boa.env.generate_address()
-    boa.env.set_balance(addr, initial_balance)
+    boa.env.set_balance(addr, 10**18)
     return addr
 
 
 @pytest.fixture
 def alice():
-    initial_balance = int(10**18)
     addr = boa.env.generate_address()
-    boa.env.set_balance(addr, initial_balance)
+    boa.env.set_balance(addr, 10**18)
     return addr
 
 
 @pytest.fixture
-def users():
+def bob():
+    addr = boa.env.generate_address()
+    boa.env.set_balance(addr, 10**18)
+    return addr
+
+
+@pytest.fixture
+def twelve_users():
     addrs = []
     for _ in range(12):
-        initial_balance = int(10**18)
         addr = boa.env.generate_address()
-        boa.env.set_balance(addr, initial_balance)
+        boa.env.set_balance(addr, 10**18)
         addrs.append(addr)
     return addrs
 
@@ -49,7 +67,7 @@ def usdc_contract(owner):
             "USD Coin",
             "USDC",
             6,
-            int(10_000 * 10**6),
+            10_000,
             "fake-usdc",
             "1",
         )
@@ -62,7 +80,7 @@ def usdt_contract(owner):
             "Tether",
             "USDT",
             6,
-            int(10_000 * 10**6),
+            10_000,
             "fake-usdt",
             "1",
         )
@@ -75,63 +93,39 @@ def weth_contract(owner):
             "Wrapped Ether",
             "WETH",
             18,
-            int(10_000 * 10**18),
+            10_000,
             "fake-weth",
             "1",
         )
 
 
 @pytest.fixture
-def tokens(usdc_contract, usdt_contract, weth_contract):
-    return [usdc_contract, usdt_contract, weth_contract]
-
-
-@pytest.fixture
 def pasanaku_contract(owner, usdc_contract, usdt_contract, weth_contract):
+    assets = [usdc_contract.address, usdt_contract.address, weth_contract.address]
     with boa.env.prank(owner):
-        return pasanaku.deploy([usdc_contract, usdt_contract, weth_contract])
+        return pasanaku.deploy(BASE_URI, assets)
 
 
 @pytest.fixture
-def protocol_fee():
-    return int(0.000075 * 10**18)
-
-
-@pytest.fixture
-def lobby_amount():
-    return LOBBY_AMOUNT
-
-
-@pytest.fixture
-def funded_users(users, owner, usdc_contract, pasanaku_contract):
-    collateral_per_user = LOBBY_AMOUNT * 11
-    for user in users:
-        with boa.env.prank(owner):
-            usdc_contract.mint(user, collateral_per_user)
-        with boa.env.prank(user):
-            usdc_contract.approve(pasanaku_contract.address, collateral_per_user)
-            pasanaku_contract.addCollateral(usdc_contract.address, collateral_per_user)
-    return users
-
-
-@pytest.fixture
-def lobby_id(pasanaku_contract, owner, usdc_contract, protocol_fee):
+def started_pasanaku(pasanaku_contract, owner, usdc_contract, twelve_users):
+    amount_raw = PASANAKU_AMOUNT_RAW
     with boa.env.prank(owner):
-        return pasanaku_contract.create(
-            usdc_contract.address, LOBBY_AMOUNT, value=protocol_fee
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
         )
-
-
-@pytest.fixture
-def full_lobby(pasanaku_contract, funded_users, lobby_id, protocol_fee):
-    for user in funded_users:
-        with boa.env.prank(user):
-            pasanaku_contract.join(lobby_id, value=protocol_fee)
-    return lobby_id
-
-
-@pytest.fixture
-def started_lobby(pasanaku_contract, full_lobby, funded_users):
-    with boa.env.prank(funded_users[0]):
-        pasanaku_contract.finalizeLobby(full_lobby)
-    return full_lobby
+    fund_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        twelve_users,
+        amount_raw,
+        pending_idx,
+    )
+    token_id = token_id_from_last_started(pasanaku_contract)
+    return {
+        "token_id": token_id,
+        "pending_idx": pending_idx,
+        "asset": usdc_contract,
+        "amount_raw": amount_raw,
+        "users": twelve_users,
+    }

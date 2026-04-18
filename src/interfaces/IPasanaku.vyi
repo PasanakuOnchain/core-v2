@@ -59,6 +59,18 @@ event PasanakuTicked:
     ended: bool
 
 
+event Skimmed:
+    account: indexed(address)
+    asset: indexed(address)
+    amount: uint256
+
+
+event Recovered:
+    account: indexed(address)
+    asset: indexed(address)
+    amount: uint256
+
+
 struct Pasanaku:
     token_id: uint256
     asset: address

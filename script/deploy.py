@@ -1,16 +1,39 @@
-from src import pasanaku
+import os
+
 from moccasin.boa_tools import VyperContract
+from src import Pasanaku as pasanaku
+
+DEFAULT_BASE_URI = "https://pasanaku.fun/metadata/"
+
+
+def _require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        raise SystemExit(f"Missing required environment variable: {name}")
+    return value.strip()
 
 
 def deploy() -> VyperContract:
-    tokens = [
-        "0x1234567890123456789012345678901234567890",
-        "0x1234567890123456789012345678901234567890",
-        "0x1234567890123456789012345678901234567890",
-    ]
+    base_uri = os.environ.get("PASANAKU_BASE_URI", DEFAULT_BASE_URI).strip()
+    if not base_uri:
+        raise SystemExit("PASANAKU_BASE_URI cannot be empty")
 
-    pasanaku_contract: VyperContract = pasanaku.deploy(tokens)
-    return pasanaku_contract
+    usdc = _require_env("PASANAKU_ASSET_USDC")
+    usdt = _require_env("PASANAKU_ASSET_USDT")
+    weth = _require_env("PASANAKU_ASSET_WETH")
+    supported_assets = [usdc, usdt, weth]
+
+    print("--------- DEPLOYING PASANAKU ---------")
+    print(f"base_uri: {base_uri}")
+    print(f"  USDC: {usdc}")
+    print(f"  USDT: {usdt}")
+    print(f"  WETH: {weth}")
+    print("")
+
+    contract: VyperContract = pasanaku.deploy(base_uri, supported_assets)
+    print(f"Deployed Pasanaku at: {contract.address}")
+    print("--------- DEPLOY COMPLETE ---------")
+    return contract
 
 
 def moccasin_main() -> VyperContract:
