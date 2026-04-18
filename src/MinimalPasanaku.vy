@@ -43,19 +43,14 @@ exports: (
 )
 
 
-struct Pasanaku:
-    token_id: uint256
-    asset: address
-    amount: uint256
-    participants: DynArray[address, PARTICIPANT_COUNT]
-    started: uint256
-    updated: uint256
-    ended: uint256
-
-
+# pending pasanaku counter
 _counter: uint256
-_pending_pasanakus: HashMap[uint256, Pasanaku]
-_pasanakus: HashMap[uint256, Pasanaku]
+
+# pending_index -> pasanaku
+_pending_pasanakus: HashMap[uint256, IPasanaku.Pasanaku]
+
+# pasanaku_id -> pasanaku
+_pasanakus: HashMap[uint256, IPasanaku.Pasanaku]
 
 # pasanaku_index -> tick_index
 _active_participant: HashMap[uint256, uint256]
@@ -70,9 +65,13 @@ _in_use: HashMap[address, HashMap[address, uint256]]
 _deposited_for_token: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]]
 
 PARTICIPANT_COUNT: constant(uint256) = 12
+
 TOKEN_MINT_AMOUNT: constant(uint256) = 1
+
 DAYS_30: constant(uint256) = 30 * 24 * 60 * 60
+
 SUPPORTED_ASSETS_COUNT: constant(uint256) = 3
+
 SUPPORTED_ASSETS: immutable(address[SUPPORTED_ASSETS_COUNT])
 
 
@@ -97,7 +96,7 @@ def deposit(
     assert amount > 0  # dev: invalid amount
     self._deposited[msg.sender][asset] += amount
 
-    if pasanaku_id != empty(uint256) and tick_index != empty(uint256):
+    if pasanaku_id != empty(uint256):
         self._deposit_for_token(msg.sender, amount, pasanaku_id, tick_index)
 
     extcall IERC20(asset).transferFrom(msg.sender, self, amount)
@@ -111,6 +110,7 @@ def deposit(
 
 
 @external
+@nonreentrant
 def withdraw(asset: address, amount: uint256):
     assert amount > 0  # dev: invalid amount
 
@@ -137,7 +137,7 @@ def create_pasanaku(asset: address, amount: uint256) -> uint256:
     index: uint256 = self._counter
     self._counter += 1
 
-    pasanaku: Pasanaku = Pasanaku(
+    pasanaku: IPasanaku.Pasanaku = IPasanaku.Pasanaku(
         token_id=empty(uint256),
         asset=asset,
         amount=amount,
@@ -157,10 +157,11 @@ def create_pasanaku(asset: address, amount: uint256) -> uint256:
 
 
 @external
+@nonreentrant
 def join_pasanaku(index: uint256):
     assert index < self._counter  # dev: invalid index
 
-    pasanaku: Pasanaku = self._pending_pasanakus[index]
+    pasanaku: IPasanaku.Pasanaku = self._pending_pasanakus[index]
     assert msg.sender not in pasanaku.participants  # dev: participant already joined # nosplit
 
     pasanake_amount: uint256 = pasanaku.amount * PARTICIPANT_COUNT
@@ -181,8 +182,9 @@ def join_pasanaku(index: uint256):
 
 
 @external
+@nonreentrant
 def tick(token_id: uint256):
-    pasanaku: Pasanaku = self._pasanakus[token_id]
+    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
     assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
     assert pasanaku.updated + DAYS_30 <= block.timestamp  # dev: not enough time passed # nosplit
@@ -236,7 +238,7 @@ def setApprovalForAll(operator: address, approved: bool):
 @view
 @external
 def uri(id: uint256) -> String[512]:
-    pasanaku: Pasanaku = self._pasanakus[id]
+    pasanaku: IPasanaku.Pasanaku = self._pasanakus[id]
     if pasanaku.ended != empty(uint256):
         return "https://pasanaku.fun/pasanaku/ended"
 
@@ -254,13 +256,13 @@ def isApprovedForAll(arg0: address, arg1: address) -> bool:
 
 @external
 @view
-def pasanaku(pasanaku_id: uint256) -> Pasanaku:
+def pasanaku(pasanaku_id: uint256) -> IPasanaku.Pasanaku:
     return self._pasanakus[pasanaku_id]
 
 
 @external
 @view
-def pending_pasanaku(index: uint256) -> Pasanaku:
+def pending_pasanaku(index: uint256) -> IPasanaku.Pasanaku:
     return self._pending_pasanakus[index]
 
 
@@ -303,7 +305,7 @@ def _deposit_for_token(
     pasanaku_id: uint256,
     tick_index: uint256,
 ):
-    pasanaku: Pasanaku = self._pasanakus[pasanaku_id]
+    pasanaku: IPasanaku.Pasanaku = self._pasanakus[pasanaku_id]
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
     assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
     assert participant in pasanaku.participants  # dev: participant not in pasanaku # nosplit
@@ -323,16 +325,23 @@ def _deposit_for_token(
 
 @internal
 def _start_pasanaku(index: uint256):
-    pasanaku: Pasanaku = self._pasanakus[index]
+    pasanaku: IPasanaku.Pasanaku = self._pending_pasanakus[index]
+    assert pasanaku.asset != empty(address) # dev: pasanaku not created
+
+    # Generate pasanaku id
     pasanaku_id: uint256 = self._generate_pasanaku_id(
         pasanaku.asset, pasanaku.amount, pasanaku.participants
     )
 
+    # Update pasanaku
     pasanaku.token_id = pasanaku_id
     pasanaku.started = block.timestamp
-    self._pasanakus[pasanaku_id] = pasanaku
-    self._pending_pasanakus[index] = empty(Pasanaku)
 
+    # Update pasanaku storage
+    self._pasanakus[pasanaku_id] = pasanaku
+    self._pending_pasanakus[index] = empty(IPasanaku.Pasanaku)
+
+    # Mint tokens
     for participant: address in pasanaku.participants:
         erc1155._safe_mint(participant, pasanaku_id, TOKEN_MINT_AMOUNT, b"")
 
@@ -352,4 +361,4 @@ def _generate_pasanaku_id(
     amount: uint256,
     participants: DynArray[address, PARTICIPANT_COUNT],
 ) -> uint256:
-    return convert(keccak256(abi_encode(asset, amount, participants)), uint256)
+    return convert(keccak256(abi_encode(asset, amount, participants, block.prevhash)), uint256)

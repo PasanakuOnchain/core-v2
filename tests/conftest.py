@@ -1,7 +1,7 @@
 import pytest
 import boa
 from src import Pasanaku as pasanaku
-from tests._mocks import erc20_mock
+from tests.mocks import erc20_mock
 
 
 LOBBY_AMOUNT = 100 * 10**6

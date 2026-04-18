@@ -57,3 +57,13 @@ event PasanakuTicked:
     amount: uint256
     updated_at: uint256
     ended: bool
+
+
+struct Pasanaku:
+    token_id: uint256
+    asset: address
+    amount: uint256
+    participants: DynArray[address, 12]
+    started: uint256
+    updated: uint256
+    ended: uint256

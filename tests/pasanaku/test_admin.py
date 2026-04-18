@@ -1,5 +1,5 @@
 import boa
-from tests._mocks import erc20_mock
+from tests.mocks import erc20_mock
 
 LOBBY_AMOUNT = 100 * 10**6
 
