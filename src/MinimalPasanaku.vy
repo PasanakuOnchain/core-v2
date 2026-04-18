@@ -33,7 +33,14 @@ implements: IPasanaku
 # @dev We import and initialise the `erc1155` module.
 from snekmate.tokens import erc1155
 initializes: erc1155[ownable := ow]
-exports: erc1155.__interface__
+exports: (
+    erc1155.owner,
+    erc1155.supportsInterface,
+    erc1155.balanceOfBatch,
+    erc1155.exists,
+    erc1155.balanceOf,
+    erc1155.total_supply,
+)
 
 
 struct Pasanaku:
@@ -201,6 +208,48 @@ def tick(token_id: uint256):
         updated_at=block.timestamp,
         ended=index == PARTICIPANT_COUNT - 1,
     )
+
+
+@external
+def safeTransferFrom(
+    owner: address, to: address, id: uint256, amount: uint256, data: Bytes[1024]
+):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+@external
+def safeBatchTransferFrom(
+    owner: address,
+    to: address,
+    ids: DynArray[uint256, 128],
+    amounts: DynArray[uint256, 128],
+    data: Bytes[1024],
+):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+@external
+def setApprovalForAll(operator: address, approved: bool):
+    raise "pasanaku: pasanakus are soul-bounded tokens"
+
+
+@view
+@external
+def uri(id: uint256) -> String[512]:
+    pasanaku: Pasanaku = self._pasanakus[id]
+    if pasanaku.ended != empty(uint256):
+        return "https://pasanaku.fun/pasanaku/ended"
+
+    if pasanaku.started != empty(uint256):
+        return "https://pasanaku.fun/pasanaku/started"
+    
+    return "https://pasanaku.fun/pasanaku/pending"
+
+
+@view
+@external
+def isApprovedForAll(arg0: address, arg1: address) -> bool:
+    return False
 
 
 @external
