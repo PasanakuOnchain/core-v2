@@ -5,6 +5,7 @@ from tests.conftest import (
     fund_and_join_all,
     token_id_from_last_started,
 )
+from tests.mocks import erc20_mock
 
 
 def test_deploy_sets_supported_assets(
@@ -393,3 +394,157 @@ def test_collateral_in_use_view(pasanaku_contract, owner, usdc_contract, twelve_
     with boa.env.prank(u0):
         pasanaku_contract.join_pasanaku(pending_idx)
     assert pasanaku_contract.collateral_in_use(u0, usdc_contract.address) == need
+
+
+def test_total_deposited_matches_accumulated_balances_usdc_after_full_join(
+    pasanaku_contract, owner, usdc_contract, twelve_users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    expected_total = amount_raw * 12 * 12
+    with boa.env.prank(owner):
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
+    fund_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        twelve_users,
+        amount_raw,
+        pending_idx,
+    )
+    assert pasanaku_contract.total_deposited(usdc_contract.address) == expected_total
+
+
+def test_skim_happy_moves_surplus_emits(
+    owner, pasanaku_contract, usdc_contract, twelve_users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    total_recorded = amount_raw * 12 * 12
+    surplus = 777 * 10**6
+
+    with boa.env.prank(owner):
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
+    fund_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        twelve_users,
+        amount_raw,
+        pending_idx,
+    )
+    assert pasanaku_contract.total_deposited(usdc_contract.address) == total_recorded
+
+    pre_owner = usdc_contract.balanceOf(owner)
+    with boa.env.prank(owner):
+        usdc_contract.mint(pasanaku_contract.address, surplus)
+    assert (
+        usdc_contract.balanceOf(pasanaku_contract.address) == total_recorded + surplus
+    )
+
+    with boa.env.prank(owner):
+        pasanaku_contract.skim(usdc_contract.address)
+
+    assert usdc_contract.balanceOf(owner) == pre_owner + surplus
+    assert usdc_contract.balanceOf(pasanaku_contract.address) == total_recorded
+    skim_logs = [
+        ln for ln in pasanaku_contract.get_logs() if type(ln).__name__ == "Skimmed"
+    ]
+    assert skim_logs[-1].account == owner
+    assert skim_logs[-1].asset == usdc_contract.address
+    assert skim_logs[-1].amount == surplus
+
+
+def test_skim_non_owner_reverts(
+    alice, owner, pasanaku_contract, usdc_contract, twelve_users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    total_recorded = amount_raw * 12 * 12
+    surplus = 10**6
+
+    with boa.env.prank(owner):
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
+    fund_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        twelve_users,
+        amount_raw,
+        pending_idx,
+    )
+    with boa.env.prank(owner):
+        usdc_contract.mint(pasanaku_contract.address, surplus)
+    assert usdc_contract.balanceOf(pasanaku_contract.address) > total_recorded
+
+    with boa.reverts("ownable: caller is not the owner"):
+        with boa.env.prank(alice):
+            pasanaku_contract.skim(usdc_contract.address)
+
+
+def test_skim_unsupported_asset_reverts(owner, pasanaku_contract):
+    stray = erc20_mock.deploy(
+        "Stray",
+        "STRY",
+        6,
+        1,
+        "stray-token",
+        "1",
+    )
+    assert stray.address != pasanaku_contract.supported_assets()[0]
+    with boa.env.prank(owner):
+        with boa.reverts(dev="unsupported asset"):
+            pasanaku_contract.skim(stray.address)
+
+
+def test_skim_insufficient_surplus_reverts(owner, pasanaku_contract, started_pasanaku):
+    asset = started_pasanaku["asset"]
+
+    with boa.env.prank(owner):
+        with boa.reverts(dev="insufficient extra balance"):
+            pasanaku_contract.skim(asset.address)
+
+
+def test_recover_moves_unsupported_asset_emits(
+    pasanaku_contract, owner, usdc_contract, usdt_contract, weth_contract
+):
+    with boa.env.prank(owner):
+        stray = erc20_mock.deploy(
+            "Lost",
+            "LOST",
+            6,
+            1,
+            "lost-token",
+            "1",
+        )
+    assert stray.address not in (
+        usdc_contract.address,
+        usdt_contract.address,
+        weth_contract.address,
+    )
+
+    amt = 500 * 10**6
+    with boa.env.prank(owner):
+        stray.mint(pasanaku_contract.address, amt)
+
+    pre_owner = stray.balanceOf(owner)
+
+    with boa.env.prank(owner):
+        pasanaku_contract.recover(stray.address, amt)
+
+    assert stray.balanceOf(owner) == pre_owner + amt
+    logs = [
+        ln for ln in pasanaku_contract.get_logs() if type(ln).__name__ == "Recovered"
+    ]
+    assert logs[-1].account == owner
+    assert logs[-1].asset == stray.address
+    assert logs[-1].amount == amt
+
+
+def test_recover_supported_asset_reverts(owner, pasanaku_contract, usdc_contract):
+    with boa.env.prank(owner):
+        with boa.reverts(dev="cannot be a supported asset"):
+            pasanaku_contract.recover(usdc_contract.address, 1)
