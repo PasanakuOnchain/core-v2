@@ -5,7 +5,7 @@
 @notice Rotating savings pool with collateral-backed rounds.
 
 @dev Supported assets constructor triple is deployment-specific canonical ERC20 addresses
-      (intended identities: WETH, DAI, crvUSD on the target chain). Standard transfer
+      (intended identities: wstETH, USDC, USDT, GHO on the target chain). Standard transfer
       semantics only — no fee on transfer or rebasing; internal balances match IERC20 movers.
 
 Protocol summary:
@@ -13,21 +13,30 @@ Protocol summary:
     • Window index k equals pasanaku.index before tick: recipient is participants[k];
       all other participants must deposit pasanaku.amount for that k (recipient exempt).
     • Each tick (after _DAYS_40): settle round k — recipient receives (N-1)*amount in principal.
-      Non-recipients who did not deposit lose amount plus a small penalty (bps) from
-      _collateral; principal fills the pool. Forfeited penalty ERC20 is split among
-      eligible obligors — non-recipient participants who deposited for round k —
-      proportional to cumulative successful obligated deposits `w` for this token_id
-      (`successful_obligated_deposits` / `_successful_obligated_deposits`). Integer shares:
-      `floor = penalty_pool * w // W`; slack wei gives +1 in participants array order to
-      the first slack eligible addresses. If nobody eligible deposited (all obligated
-      non-recipients defaulted) or W == 0, the entire penalty_pool goes to owner().
-      Otherwise owner receives no penalty wei this tick (`PasanakuPenalties` only when owner
-      amount > 0). Per-payee payouts log `PasanakuPenaltyShare`.
+      Non-recipients who did not deposit lose amount plus a miss penalty (bps) from
+      _collateral; principal fills the pool. All forfeited penalty ERC20 goes to owner()
+      (treasury); `PasanakuPenalties` logs the amount.
+    • Obligor deposits: underlying ERC20 is supplied to Fluid Lending fToken (per-asset),
+      tracked principal in _fluid_principal_tracked until withdrawn for payouts.
+    • After payout shortfall: if contract balance is below recipient_payout, withdraw from
+      fToken to cover; principal tracing reduces _fluid_principal_tracked by up to the
+      withdraw size.
+    • harvest_yield (owner only, after pool ended): redeem all fToken shares for that asset,
+      split surplus 25% owner / 75% equal six-way to participant slots [3–8]; split dust to owner.
     • Join/create lock pledge(amount) = amount*N + amount*N*PENALTY_BPS//10000 into _collateral_in_use.
 """
 
 from ethereum.ercs import IERC20
 from ethereum.ercs import IERC165
+
+
+interface IFluidFToken:
+    def asset() -> address: view
+    def deposit(assets: uint256, receiver: address) -> uint256: nonpayable
+    def withdraw(assets: uint256, receiver: address, owner: address) -> uint256: nonpayable
+    def redeem(shares: uint256, receiver: address, owner: address) -> uint256: nonpayable
+
+
 from snekmate.auth import ownable as ow
 from snekmate.auth import ownable_2step as ow2step
 from snekmate.tokens import erc1155 
@@ -116,11 +125,17 @@ event PasanakuPenalties:
     amount: uint256
 
 
-event PasanakuPenaltyShare:
+event PasanakuYieldHarvested:
     token_id: indexed(uint256)
-    tick_index: uint256
-    beneficiary: indexed(address)
+    asset: indexed(address)
+    surplus: uint256
+    treasury_amt: uint256
+
+
+event PasanakuYieldParticipant:
+    token_id: indexed(uint256)
     asset: address
+    beneficiary: indexed(address)
     amount: uint256
 
 
@@ -143,10 +158,15 @@ struct Pasanaku:
 
 
 _PARTICIPANT_COUNT: constant(uint256) = 9
-_MISS_PENALTY_BPS: constant(uint256) = 25
+_MISS_PENALTY_BPS: constant(uint256) = 50
 _DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
 _SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
 _SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
+_F_TOKENS: public(immutable(address[_SUPPORTED_ASSETS_COUNT]))
+_LATE_FIRST_IDX: constant(uint256) = 3
+_LATE_LAST_IDX: constant(uint256) = 8
+_LATE_PARTICIPANT_COUNT: constant(uint256) = 6
+_YIELD_TREASURY_BPS: constant(uint256) = 2500
 _TOKEN_AMOUNT: constant(uint256) = 1
 _BPS_PRECISION: constant(uint256) = 10000
 
@@ -158,12 +178,23 @@ _collateral_in_use: HashMap[address, HashMap[address, uint256]]
 _deposited_for_pasanaku: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]]  # nosplit
 _successful_obligated_deposits: HashMap[uint256, HashMap[address, uint256]]
 _slash_from_in_use: HashMap[uint256, HashMap[address, uint256]]
+_fluid_principal_tracked: HashMap[uint256, uint256]
 
 
 @deploy
 @payable
-def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
+def __init__(
+    supported_assets: address[_SUPPORTED_ASSETS_COUNT],
+    f_tokens: address[_SUPPORTED_ASSETS_COUNT],
+):
+    for i: uint256 in range(_SUPPORTED_ASSETS_COUNT):
+        assert f_tokens[i] != empty(address)  # dev: invalid f_token # nosplit
+        asset: address = staticcall IFluidFToken(f_tokens[i]).asset()
+        assert asset == supported_assets[i]  # dev: f_asset mismatch # nosplit
+
     _SUPPORTED_ASSETS = supported_assets
+    _F_TOKENS = f_tokens
+
     ow.__init__()
     ow2step.__init__()
     erc1155.__init__("https://pasanaku.fun/pasanaku/")
@@ -185,6 +216,7 @@ def add_collateral(asset: address, amount: uint256):
 
 
 @external
+@nonreentrant
 def deposit_to_pasanaku(asset: address, amount: uint256, token_id: uint256):
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
     assert amount > 0  # dev: invalid amount
@@ -211,6 +243,10 @@ def deposit_to_pasanaku(asset: address, amount: uint256, token_id: uint256):
         amount=amount,
     )
     extcall IERC20(asset).transferFrom(msg.sender, self, amount)
+    ft: address = self._f_token_for(asset)
+    extcall IERC20(asset).approve(ft, amount)
+    extcall IFluidFToken(ft).deposit(amount, self)
+    self._fluid_principal_tracked[token_id] += amount
 
 
 @external
@@ -298,10 +334,8 @@ def tick(token_id: uint256):
 
     pasanaku.updated = block.timestamp
 
-    extcall IERC20(asset).transfer(recipient, recipient_payout)
-    self._distribute_penalties(
-        token_id, round_idx, penalties, pasanaku, recipient
-    )
+    self._payout_recipient(token_id, pasanaku, recipient, recipient_payout)
+    self._distribute_penalties(token_id, round_idx, penalties, pasanaku)
 
     log PasanakuTicked(
         token_id=token_id,
@@ -399,6 +433,57 @@ def successful_obligated_deposits(
 
 @external
 @view
+def fluid_principal_tracked(pasanaku_id: uint256) -> uint256:
+    return self._fluid_principal_tracked[pasanaku_id]
+
+
+@external
+@nonreentrant
+def harvest_yield(token_id: uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert pasanaku.ended != empty(uint256)  # dev: not ended # nosplit
+    assert self._fluid_principal_tracked[token_id] == 0  # dev: principal tracked # nosplit
+
+    asset: address = pasanaku.asset
+    ft: address = self._f_token_for(asset)
+    pre: uint256 = staticcall IERC20(asset).balanceOf(self)
+    sh: uint256 = staticcall IERC20(ft).balanceOf(self)
+    if sh > 0:
+        extcall IFluidFToken(ft).redeem(sh, self, self)
+    post: uint256 = staticcall IERC20(asset).balanceOf(self)
+    surplus: uint256 = post - pre
+    if surplus == 0:
+        return
+
+    treasury_base: uint256 = surplus * _YIELD_TREASURY_BPS // _BPS_PRECISION
+    late_pool: uint256 = surplus - treasury_base
+    per: uint256 = late_pool // _LATE_PARTICIPANT_COUNT
+    dust: uint256 = surplus - treasury_base - per * _LATE_PARTICIPANT_COUNT
+    owner_amt: uint256 = treasury_base + dust
+
+    for i: uint256 in range(_LATE_FIRST_IDX, _LATE_LAST_IDX + 1):
+        ben: address = pasanaku.participants[i]
+        if per > 0:
+            extcall IERC20(asset).transfer(ben, per)
+            log PasanakuYieldParticipant(
+                token_id=token_id,
+                asset=asset,
+                beneficiary=ben,
+                amount=per,
+            )
+
+    if owner_amt > 0:
+        extcall IERC20(asset).transfer(ow.owner, owner_amt)
+    log PasanakuYieldHarvested(
+        token_id=token_id,
+        asset=asset,
+        surplus=surplus,
+        treasury_amt=owner_amt,
+    )
+
+
+@external
+@view
 def participant_count() -> uint256:
     return _PARTICIPANT_COUNT
 
@@ -466,6 +551,37 @@ def _start_pasanaku(token_id: uint256):
 
 
 @internal
+def _payout_recipient(
+    token_id: uint256,
+    pasanaku: Pasanaku,
+    recipient: address,
+    payout: uint256,
+):
+    if payout == 0:
+        return
+    asset: address = pasanaku.asset
+    ft: address = self._f_token_for(asset)
+    pt: uint256 = self._fluid_principal_tracked[token_id]
+    pull_ft: uint256 = payout
+    if pull_ft > pt:
+        pull_ft = pt
+    if pull_ft > 0:
+        pre_a: uint256 = staticcall IERC20(asset).balanceOf(self)
+        extcall IFluidFToken(ft).withdraw(pull_ft, self, self)
+        post_a: uint256 = staticcall IERC20(asset).balanceOf(self)
+        received: uint256 = post_a - pre_a
+        dec: uint256 = received
+        pt = self._fluid_principal_tracked[token_id]
+        if dec > pt:
+            dec = pt
+        self._fluid_principal_tracked[token_id] = pt - dec
+
+    bal: uint256 = staticcall IERC20(asset).balanceOf(self)
+    assert bal >= payout  # dev: insufficient liquidity # nosplit
+    extcall IERC20(asset).transfer(recipient, payout)
+
+
+@internal
 def _unlock_collateral_in_use(token_id: uint256, pasanaku: Pasanaku):
     pledge_amt: uint256 = self._pledge(pasanaku.amount)
     for participant: address in pasanaku.participants:
@@ -508,72 +624,31 @@ def _distribute_penalties(
     round_idx: uint256,
     penalty_pool: uint256,
     pasanaku: Pasanaku,
-    recipient: address,
 ):
     if penalty_pool == 0:
         return
 
     asset: address = pasanaku.asset
     fee_sink: address = ow.owner
+    extcall IERC20(asset).transfer(fee_sink, penalty_pool)
+    log PasanakuPenalties(
+        token_id=token_id,
+        tick_index=round_idx,
+        owner=fee_sink,
+        asset=asset,
+        amount=penalty_pool,
+    )
 
-    eligible_n: uint256 = 0
-    total_weight: uint256 = 0
-    for p: address in pasanaku.participants:
-        if p == recipient:
-            continue
-        if self._deposited_for_pasanaku[token_id][round_idx][p]:
-            eligible_n += 1
-            total_weight += self._successful_obligated_deposits[token_id][p]
 
-    # Edgecase: no eligible participants or no successful obligated deposits
-    if eligible_n == 0 or total_weight == 0:
-        if penalty_pool > 0:
-            extcall IERC20(asset).transfer(fee_sink, penalty_pool)
-            log PasanakuPenalties(
-                token_id=token_id,
-                tick_index=round_idx,
-                owner=fee_sink,
-                asset=asset,
-                amount=penalty_pool,
-            )
-        return
 
-    paid_floor: uint256 = 0
-    for p: address in pasanaku.participants:
-        if p == recipient:
-            continue
-        if not self._deposited_for_pasanaku[token_id][round_idx][p]:
-            continue
-        w_p: uint256 = self._successful_obligated_deposits[token_id][p]
-        share: uint256 = penalty_pool * w_p // total_weight
-        paid_floor += share
-        if share > 0:
-            extcall IERC20(asset).transfer(p, share)
-            log PasanakuPenaltyShare(
-                token_id=token_id,
-                tick_index=round_idx,
-                beneficiary=p,
-                asset=asset,
-                amount=share,
-            )
+@internal
+@view
+def _f_token_for(asset: address) -> address:
+    for i: uint256 in range(_SUPPORTED_ASSETS_COUNT):
+        if asset == _SUPPORTED_ASSETS[i]:
+            return _F_TOKENS[i]
+    raise "pasanaku: unsupported asset"
 
-    slack: uint256 = penalty_pool - paid_floor
-    for p: address in pasanaku.participants:
-        if slack == 0:
-            break
-        if p == recipient:
-            continue
-        if not self._deposited_for_pasanaku[token_id][round_idx][p]:
-            continue
-        extcall IERC20(asset).transfer(p, 1)
-        log PasanakuPenaltyShare(
-            token_id=token_id,
-            tick_index=round_idx,
-            beneficiary=p,
-            asset=asset,
-            amount=1,
-        )
-        slack -= 1
 
 
 @internal

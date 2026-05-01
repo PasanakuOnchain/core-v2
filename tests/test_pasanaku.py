@@ -13,12 +13,13 @@ from tests.conftest import (
 
 
 def test_deploy_supported_assets_and_participant_count(
-    pasanaku_contract, usdc_contract, usdt_contract, weth_contract
+    pasanaku_contract, usdc_contract, usdt_contract, weth_contract, dai_contract
 ):
     assets = pasanaku_contract.supported_assets()
     assert assets[0] == usdc_contract.address
     assert assets[1] == usdt_contract.address
     assert assets[2] == weth_contract.address
+    assert assets[3] == dai_contract.address
     assert pasanaku_contract.participant_count() == PARTICIPANT_COUNT
 
 
@@ -224,10 +225,10 @@ def test_last_tick_ends_and_uri(
     assert pasanaku_contract.uri(tid) == "https://pasanaku.fun/pasanaku/ended"
 
 
-def test_non_payer_slash_penalty_split_among_eligible_weighed(
+def test_non_payer_slash_penalty_to_owner_not_eligibles(
     pasanaku_contract, owner, usdc_contract, nine_users, started_pasanaku
 ):
-    """Single defaulter: penalty_pool split evenly among eligible (all w=1); +1 wei to first slack depositors."""
+    """Single defaulter: full penalty_pool goes to owner(); eligibles' USDC unchanged by penalty."""
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
@@ -260,14 +261,14 @@ def test_non_payer_slash_penalty_split_among_eligible_weighed(
     assert usdc_contract.balanceOf(recipient) == pre_recipient + amount_raw * (
         PARTICIPANT_COUNT - 1
     )
-    assert usdc_contract.balanceOf(owner) == owner_pre
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen
     assert (
         pasanaku_contract.collateral(defaulter, usdc_contract.address)
         == pre_collateral - slash_total
     )
 
     post_pay = sum(usdc_contract.balanceOf(u) for u in eligible)
-    assert post_pay - pre_pay == pen
+    assert post_pay == pre_pay
 
 
 def test_happy_path_collateral_in_use_zero_after_end(
@@ -351,10 +352,10 @@ def test_all_obligated_nonrecipients_default_penalty_to_owner(
         assert pasanaku_contract.successful_obligated_deposits(tid, u) == 0
 
 
-def test_penalty_weighted_split_when_weights_differ(
+def test_penalties_all_to_owner_when_eligibles_exist(
     pasanaku_contract, owner, usdc_contract, nine_users, started_pasanaku
 ):
-    """Round 0 all obligors pay; round 1 one defaulter — weights differ; emits total pen to eligibles."""
+    """Round 0 all obligors pay; round 1 one defaulter — full penalty on that round to owner()."""
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
@@ -377,28 +378,11 @@ def test_penalty_weighted_split_when_weights_differ(
         if round_idx == 0:
             pasanaku_contract.tick(tid)
 
-    recipient_r1 = users[1]
-    defaulter_r1 = users[2]
-    eligible = [u for u in users if u != recipient_r1 and u != defaulter_r1]
-    weights = {
-        u: pasanaku_contract.successful_obligated_deposits(tid, u) for u in eligible
-    }
-    W = sum(weights[u] for u in eligible)
-    assert W == 13
-
     pen = penalty_per_amount(amount_raw)
     owner_pre = usdc_contract.balanceOf(owner)
     pasanaku_contract.tick(tid)
 
-    assert usdc_contract.balanceOf(owner) == owner_pre
-
-    shares = [
-        ln
-        for ln in pasanaku_contract.get_logs()
-        if type(ln).__name__ == "PasanakuPenaltyShare" and ln.token_id == tid
-    ]
-    last_tick_shares = [ln for ln in shares if ln.tick_index == 1]
-    assert sum(ln.amount for ln in last_tick_shares) == pen
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen
 
 
 def test_accept_ownership(pasanaku_contract, owner, alice):
@@ -409,3 +393,57 @@ def test_accept_ownership(pasanaku_contract, owner, alice):
     with boa.env.prank(alice):
         pasanaku_contract.accept_ownership()
     assert pasanaku_contract.owner() == alice
+
+
+def test_harvest_yield_splits_surplus_after_pool_ends(
+    pasanaku_contract,
+    owner,
+    usdc_contract,
+    fluid_ftokens,
+    nine_users,
+    started_pasanaku,
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    ft_usdc = fluid_ftokens[0]
+
+    for round_idx in range(PARTICIPANT_COUNT):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(
+                    usdc_contract.address, amount_raw, tid
+                )
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(tid)
+
+    assert pasanaku_contract.fluid_principal_tracked(tid) == 0
+
+    yield_amt = 1_000_000
+    with boa.env.prank(owner):
+        usdc_contract.mint(owner, yield_amt)
+        usdc_contract.approve(ft_usdc.address, yield_amt)
+        ft_usdc.deposit(yield_amt, pasanaku_contract.address)
+
+    surplus = yield_amt
+    treasury_base = surplus * 2500 // 10_000
+    late_pool = surplus - treasury_base
+    per = late_pool // 6
+    dust = surplus - treasury_base - per * 6
+    owner_amt = treasury_base + dust
+
+    pre_late = [usdc_contract.balanceOf(users[i]) for i in range(3, 9)]
+    pre_owner = usdc_contract.balanceOf(owner)
+
+    with boa.env.prank(owner):
+        pasanaku_contract.harvest_yield(tid)
+
+    for i in range(3, 9):
+        assert usdc_contract.balanceOf(users[i]) == pre_late[i - 3] + per
+    assert usdc_contract.balanceOf(owner) == pre_owner + owner_amt
