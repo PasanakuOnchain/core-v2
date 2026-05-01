@@ -22,20 +22,19 @@ event CollateralWithdrawn:
 
 
 event PasanakuCreated:
-    pending_index: indexed(uint256)
+    token_id: indexed(uint256)
     asset: indexed(address)
     amount: uint256
 
 
 event PasanakuJoined:
+    token_id: indexed(uint256)
     account: indexed(address)
-    pending_index: indexed(uint256)
     participant_count: uint256
 
 
 event PasanakuStarted:
     token_id: indexed(uint256)
-    pending_index: uint256
     asset: address
     amount: uint256
     started_at: uint256
@@ -43,7 +42,7 @@ event PasanakuStarted:
 
 event TickDepositMarked:
     participant: indexed(address)
-    pasanaku_id: indexed(uint256)
+    token_id: indexed(uint256)
     tick_index: uint256
     asset: address
     amount: uint256
@@ -56,7 +55,13 @@ event PasanakuTicked:
     asset: address
     amount: uint256
     updated_at: uint256
-    ended: bool
+
+
+event PasanakuEnded:
+    token_id: indexed(uint256)
+    asset: indexed(address)
+    amount: uint256
+    ended_at: uint256
 
 
 event Skimmed:
@@ -76,6 +81,7 @@ struct Pasanaku:
     asset: address
     amount: uint256
     participants: DynArray[address, 12]
+    active_participant: uint256
     started: uint256
     updated: uint256
     ended: uint256
