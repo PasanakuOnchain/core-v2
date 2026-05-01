@@ -7,7 +7,7 @@
 """
 
 
-event CollateralDeposited:
+event CollateralAdded:
     account: indexed(address)
     asset: indexed(address)
     amount: uint256
