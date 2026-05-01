@@ -4,9 +4,22 @@ from src import Pasanaku as pasanaku
 from tests.mocks import erc20_mock
 
 
-BASE_URI = "https://pasanaku.fun/metadata/"
 PASANAKU_AMOUNT_RAW = 100 * 10**6
-DAYS_30 = 30 * 24 * 60 * 60
+DAYS_40 = 40 * 24 * 60 * 60
+PARTICIPANT_COUNT = 9
+_MISS_PENALTY_BPS = 25
+_BPS_PRECISION = 10000
+
+
+def pledge(amount_raw: int) -> int:
+    return (
+        amount_raw * PARTICIPANT_COUNT
+        + amount_raw * PARTICIPANT_COUNT * _MISS_PENALTY_BPS // _BPS_PRECISION
+    )
+
+
+def penalty_per_amount(amount_raw: int) -> int:
+    return amount_raw * _MISS_PENALTY_BPS // 10_000
 
 
 def token_id_from_last_started(pasanaku_contract):
@@ -16,15 +29,21 @@ def token_id_from_last_started(pasanaku_contract):
     raise RuntimeError("PasanakuStarted log not found")
 
 
-def fund_and_join_all(pasanaku_contract, asset, owner, users, amount_raw, pending_idx):
-    need = amount_raw * 12
+def fund_collateral_for_users(pasanaku_contract, asset, owner, users, amount_raw):
+    need = pledge(amount_raw)
     for u in users:
         with boa.env.prank(owner):
             asset.mint(u, need)
         with boa.env.prank(u):
             asset.approve(pasanaku_contract.address, need)
-            pasanaku_contract.deposit(asset.address, need, 0, 0)
-    for u in users:
+            pasanaku_contract.add_collateral(asset.address, need)
+
+
+def create_and_join_all(pasanaku_contract, asset, owner, users, amount_raw):
+    fund_collateral_for_users(pasanaku_contract, asset, owner, users, amount_raw)
+    with boa.env.prank(users[0]):
+        pending_idx = pasanaku_contract.create_pasanaku(asset.address, amount_raw)
+    for u in users[1:]:
         with boa.env.prank(u):
             pasanaku_contract.join_pasanaku(pending_idx)
 
@@ -51,9 +70,9 @@ def bob():
 
 
 @pytest.fixture
-def twelve_users():
+def nine_users():
     addrs = []
-    for _ in range(12):
+    for _ in range(PARTICIPANT_COUNT):
         addr = boa.env.generate_address()
         boa.env.set_balance(addr, 10**18)
         addrs.append(addr)
@@ -100,32 +119,43 @@ def weth_contract(owner):
 
 
 @pytest.fixture
-def pasanaku_contract(owner, usdc_contract, usdt_contract, weth_contract):
-    assets = [usdc_contract.address, usdt_contract.address, weth_contract.address]
+def dai_contract(owner):
     with boa.env.prank(owner):
-        return pasanaku.deploy(BASE_URI, assets)
+        return erc20_mock.deploy(
+            "Dai Stablecoin",
+            "DAI",
+            18,
+            10_000,
+            "fake-dai",
+            "1",
+        )
 
 
 @pytest.fixture
-def started_pasanaku(pasanaku_contract, owner, usdc_contract, twelve_users):
-    amount_raw = PASANAKU_AMOUNT_RAW
+def pasanaku_contract(owner, usdc_contract, usdt_contract, weth_contract, dai_contract):
+    assets = [
+        usdc_contract.address,
+        usdt_contract.address,
+        weth_contract.address,
+        dai_contract.address,
+    ]
     with boa.env.prank(owner):
-        pending_idx = pasanaku_contract.create_pasanaku(
-            usdc_contract.address, amount_raw
-        )
-    fund_and_join_all(
+        return pasanaku.deploy(assets)
+
+
+@pytest.fixture
+def started_pasanaku(pasanaku_contract, owner, usdc_contract, nine_users):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(
         pasanaku_contract,
         usdc_contract,
         owner,
-        twelve_users,
+        nine_users,
         amount_raw,
-        pending_idx,
     )
     token_id = token_id_from_last_started(pasanaku_contract)
     return {
         "token_id": token_id,
-        "pending_idx": pending_idx,
-        "asset": usdc_contract,
         "amount_raw": amount_raw,
-        "users": twelve_users,
+        "users": nine_users,
     }
