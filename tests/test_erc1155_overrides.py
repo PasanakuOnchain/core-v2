@@ -1,6 +1,11 @@
 import boa
 
-from tests.conftest import DAYS_40, PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW, fund_collateral_for_users
+from tests.conftest import (
+    DAYS_40,
+    PARTICIPANT_COUNT,
+    PASANAKU_AMOUNT_RAW,
+    fund_collateral_for_users,
+)
 
 
 def test_safe_transfer_from_reverts(pasanaku_contract, alice, bob):
@@ -30,8 +35,7 @@ def test_is_approved_for_all_always_false(pasanaku_contract, nine_users):
 
 def test_uri_unknown_token_not_created(pasanaku_contract):
     assert (
-        pasanaku_contract.uri(2**256 - 1)
-        == "https://pasanaku.fun/pasanaku/not-created"
+        pasanaku_contract.uri(2**256 - 1) == "https://pasanaku.fun/pasanaku/not-created"
     )
 
 

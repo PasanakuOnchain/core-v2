@@ -22,7 +22,9 @@ def test_deploy_supported_assets_and_participant_count(
     assert pasanaku_contract.participant_count() == PARTICIPANT_COUNT
 
 
-def test_create_pasanaku_returns_zero(pasanaku_contract, nine_users, owner, usdc_contract):
+def test_create_pasanaku_returns_zero(
+    pasanaku_contract, nine_users, owner, usdc_contract
+):
     amount_raw = PASANAKU_AMOUNT_RAW
     fund_collateral_for_users(
         pasanaku_contract, usdc_contract, owner, [nine_users[0]], amount_raw
@@ -41,7 +43,9 @@ def test_join_insufficient_collateral_reverts(
         pasanaku_contract, usdc_contract, owner, [nine_users[0]], amount_raw
     )
     with boa.env.prank(nine_users[0]):
-        pending_idx = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
 
     u = nine_users[1]
     with boa.env.prank(owner):
@@ -84,7 +88,9 @@ def test_full_join_starts_pasanaku(pasanaku_contract, owner, usdc_contract, nine
     assert st.ended == 0
 
 
-def test_collateral_in_use_after_join(pasanaku_contract, owner, usdc_contract, nine_users):
+def test_collateral_in_use_after_join(
+    pasanaku_contract, owner, usdc_contract, nine_users
+):
     amount_raw = PASANAKU_AMOUNT_RAW
     need = pledge(amount_raw)
     fund_collateral_for_users(
@@ -92,10 +98,16 @@ def test_collateral_in_use_after_join(pasanaku_contract, owner, usdc_contract, n
     )
     with boa.env.prank(nine_users[0]):
         pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
-    assert pasanaku_contract.collateral_in_use(nine_users[0], usdc_contract.address) == need
+    assert (
+        pasanaku_contract.collateral_in_use(nine_users[0], usdc_contract.address)
+        == need
+    )
     with boa.env.prank(nine_users[1]):
         pasanaku_contract.join_pasanaku(0)
-    assert pasanaku_contract.collateral_in_use(nine_users[1], usdc_contract.address) == need
+    assert (
+        pasanaku_contract.collateral_in_use(nine_users[1], usdc_contract.address)
+        == need
+    )
 
 
 def test_withdraw_collateral_blocked_when_all_locked(
@@ -142,7 +154,9 @@ def test_tick_first_pays_principal_only(
     assert st.index == 1
 
 
-def test_recipient_cannot_deposit(pasanaku_contract, owner, usdc_contract, started_pasanaku):
+def test_recipient_cannot_deposit(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     recipient = started_pasanaku["users"][0]
@@ -156,7 +170,9 @@ def test_recipient_cannot_deposit(pasanaku_contract, owner, usdc_contract, start
             )
 
 
-def test_middle_tick(pasanaku_contract, owner, usdc_contract, nine_users, started_pasanaku):
+def test_middle_tick(
+    pasanaku_contract, owner, usdc_contract, nine_users, started_pasanaku
+):
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
@@ -225,7 +241,9 @@ def test_non_payer_slash_penalty_split_among_eligible_weighed(
             usdc_contract.mint(u, amount_raw)
         with boa.env.prank(u):
             usdc_contract.approve(pasanaku_contract.address, amount_raw)
-            pasanaku_contract.deposit_to_pasanaku(usdc_contract.address, amount_raw, tid)
+            pasanaku_contract.deposit_to_pasanaku(
+                usdc_contract.address, amount_raw, tid
+            )
             assert pasanaku_contract.successful_obligated_deposits(tid, u) == 1
 
     slash_total = amount_raw + penalty_per_amount(amount_raw)
@@ -243,7 +261,10 @@ def test_non_payer_slash_penalty_split_among_eligible_weighed(
         PARTICIPANT_COUNT - 1
     )
     assert usdc_contract.balanceOf(owner) == owner_pre
-    assert pasanaku_contract.collateral(defaulter, usdc_contract.address) == pre_collateral - slash_total
+    assert (
+        pasanaku_contract.collateral(defaulter, usdc_contract.address)
+        == pre_collateral - slash_total
+    )
 
     post_pay = sum(usdc_contract.balanceOf(u) for u in eligible)
     assert post_pay - pre_pay == pen
@@ -288,10 +309,14 @@ def test_duplicate_deposit_same_round_reverts(
         usdc_contract.approve(pasanaku_contract.address, extra)
         pasanaku_contract.deposit_to_pasanaku(usdc_contract.address, amount_raw, tid)
         with boa.reverts(dev="account already deposited # nosplit"):
-            pasanaku_contract.deposit_to_pasanaku(usdc_contract.address, amount_raw, tid)
+            pasanaku_contract.deposit_to_pasanaku(
+                usdc_contract.address, amount_raw, tid
+            )
 
 
-def test_deposit_wrong_amount_reverts(pasanaku_contract, owner, usdc_contract, started_pasanaku):
+def test_deposit_wrong_amount_reverts(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     payer = started_pasanaku["users"][1]
@@ -345,7 +370,9 @@ def test_penalty_weighted_split_when_weights_differ(
                 usdc_contract.mint(u, amount_raw)
             with boa.env.prank(u):
                 usdc_contract.approve(pasanaku_contract.address, amount_raw)
-                pasanaku_contract.deposit_to_pasanaku(usdc_contract.address, amount_raw, tid)
+                pasanaku_contract.deposit_to_pasanaku(
+                    usdc_contract.address, amount_raw, tid
+                )
         boa.env.time_travel(seconds=DAYS_40)
         if round_idx == 0:
             pasanaku_contract.tick(tid)
@@ -353,7 +380,9 @@ def test_penalty_weighted_split_when_weights_differ(
     recipient_r1 = users[1]
     defaulter_r1 = users[2]
     eligible = [u for u in users if u != recipient_r1 and u != defaulter_r1]
-    weights = {u: pasanaku_contract.successful_obligated_deposits(tid, u) for u in eligible}
+    weights = {
+        u: pasanaku_contract.successful_obligated_deposits(tid, u) for u in eligible
+    }
     W = sum(weights[u] for u in eligible)
     assert W == 13
 
