@@ -1,164 +1,134 @@
 # pragma version ==0.4.3
 # pragma nonreentrancy off
-"""
-@title `Pasanaku` - Pasanaku contract
-@custom:contract-name Pasanaku
-@license GNU Affero General Public License v3.0 only
-@author Rafael Abuawad <x.com/rabuawad_>
-@notice Pasanaku: collateral-held rotating payouts using Snekmate `erc1155` with metadata URI
-        (`uri`) and ERC-165; ownership uses Snekmate `ownable`. Filled cohorts share one ERC-1155 id
-        (soulbound: transfer and approve entrypoints revert on this deployment). Exported read/write
-        from `erc1155` includes `owner`, `supportsInterface`, `balanceOfBatch`, `exists`, `balanceOf`,
-        `total_supply`. Round `@external` and `@view` entrypoints appear below per `implements IPasanaku`.
-@dev Composes Snekmate modules with round state and events from `IPasanaku`; single canonical round
-      key `token_id` minted once the cohort is complete.
-"""
 
-# @dev We import the `IERC20` interface.
 from ethereum.ercs import IERC20
 
 
-# @dev We import and implement the `IERC165` interface.
-from ethereum.ercs import IERC165
-implements: IERC165
+event CollateralAdded:
+    account: indexed(address)
+    asset: indexed(address)
+    amount: uint256
 
 
-# @dev We import and implement the `IERC1155` interface.
-from snekmate.tokens.interfaces import IERC1155
-implements: IERC1155
+event CollateralWithdrawn:
+    account: indexed(address)
+    asset: indexed(address)
+    amount: uint256
+    balance_after: uint256
 
 
-# @dev We import and implement the `IERC1155MetadataURI`.
-from snekmate.tokens.interfaces import IERC1155MetadataURI
-implements: IERC1155MetadataURI
+event PasanakuCreated:
+    token_id: indexed(uint256)
+    asset: indexed(address)
+    amount: uint256
 
 
-# @dev We import and initialise the `ownable` module.
-from snekmate.auth import ownable as ow
-initializes: ow
+event PasanakuJoined:
+    token_id: indexed(uint256)
+    account: indexed(address)
+    participant_count: uint256
 
 
-# @dev We import and implement the `IPasanaku` interface.
-from interfaces import IPasanaku
-implements: IPasanaku
+event PasanakuStarted:
+    token_id: indexed(uint256)
+    asset: address
+    amount: uint256
+    started_at: uint256
 
 
-# @dev We import and initialise the `erc1155` module.
-from snekmate.tokens import erc1155
-initializes: erc1155[ownable := ow]
-exports: (
-    erc1155.owner,
-    erc1155.supportsInterface,
-    erc1155.balanceOfBatch,
-    erc1155.exists,
-    erc1155.balanceOf,
-    erc1155.total_supply,
-)
+event PasanakuDeposited:
+    account: indexed(address)
+    token_id: indexed(uint256)
+    index: uint256
+    asset: address
+    amount: uint256
 
 
-# @dev Maximum participants per pasanaku round (fixed cohort size).
-_PARTICIPANT_COUNT: constant(uint256) = 10
+event PasanakuTicked:
+    token_id: indexed(uint256)
+    tick_index: uint256
+    recipient: indexed(address)
+    asset: address
+    amount: uint256
+    updated_at: uint256
 
 
-# @dev Amount of ERC-1155 tokens minted per participant when a round starts (one id per pasanaku).
+event PasanakuEnded:
+    token_id: indexed(uint256)
+    asset: indexed(address)
+    amount: uint256
+    ended_at: uint256
+
+
+struct Pasanaku:
+    token_id: uint256
+    asset: address
+    amount: uint256
+    participants: DynArray[address, 12]
+    index: uint256
+    started: uint256
+    updated: uint256
+    ended: uint256
+
+
+_PARTICIPANT_COUNT: constant(uint256) = 9
 _TOKEN_MINT_AMOUNT: constant(uint256) = 1
-
-
-# @dev Offset for `token_id` values.
 _TOKEN_ID_OFFSET: constant(uint256) = 1
-
-
-# @dev Minimum elapsed time in seconds between consecutive `tick` payouts for a round.
-_DAYS_30: constant(uint256) = 30 * 24 * 60 * 60
-
-# Wait time
-_DAYS_10: constant(uint256) = 10 * 24 * 60 * 60
-
-# @dev Length of the immutable supported-asset allowlist configured at deployment.
+_DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
 _SUPPORTED_ASSETS_COUNT: constant(uint256) = 3
-
-
-# @dev Allowlisted ERC-20 collateral assets used by collateral flows (`create_pasanaku`, `deposit`,
-#      `join_pasanaku`, `withdraw`) and negative allowlist guard in `recover`.
 _SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
 
-
-# @dev Counter assigning `token_id` values.
 _counter: uint256
-
-
-# @dev Pasanaku round structs keyed by allocation counter `token_id` (pending cohort or active).
-_pasanakus: HashMap[uint256, IPasanaku.Pasanaku]
-
-
-# @dev Collateral balance per `participant` per `asset`.
+_pasanakus: HashMap[uint256, Pasanaku]
 _collateral: HashMap[address, HashMap[address, uint256]]
-
-
-# @dev Portion of `_collateral` reserved because the `participant`
-#      has joined pending or active pasanakus.
 _collateral_in_use: HashMap[address, HashMap[address, uint256]]
-
-
-# @dev Whether `participant` has marked collateral for the given
-#      `token_id` and `tick_index`.
-# @notice Written when `deposit` satisfies tick rules and `_deposit_for_token` runs.
-# token_id -> tick_index -> participant -> deposited (bool)
-_deposited_for_tick: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]] # nosplit
+_deposited_for_pasanaku: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]]  # nosplit
 
 
 @deploy
 @payable
-def __init__(
-    base_uri_: String[80], supported_assets: address[_SUPPORTED_ASSETS_COUNT]
-):
-    ow.__init__()
-    erc1155.__init__(base_uri_)
+def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
     _SUPPORTED_ASSETS = supported_assets
-    self._counter = _TOKEN_ID_OFFSET
 
 
 @external
 @nonreentrant
-def add_collateral(asset: address, amount: uint256, token_id: uint256):
+def add_collateral(asset: address, amount: uint256):
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
     assert amount > 0  # dev: invalid amount
 
     self._collateral[msg.sender][asset] += amount
-    log IPasanaku.CollateralAdded(
+    log CollateralAdded(
         account=msg.sender,
         asset=asset,
         amount=amount,
-        balance_after=self._collateral[msg.sender][asset],
     )
     extcall IERC20(asset).transferFrom(msg.sender, self, amount)
 
 
 @external
-@nonreentrant
-def deposit_pasanaku(asset: address, amount: uint256, token_id: uint256):
+def deposit_to_pasanaku(asset: address, amount: uint256, token_id: uint256):
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
     assert amount > 0  # dev: invalid amount
     assert token_id >= _TOKEN_ID_OFFSET  # dev: invalid token id
 
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
-    tick_index: uint256 = pasanaku.active_participant
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    index: uint256 = pasanaku.index
 
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
     assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
-    assert msg.sender in pasanaku.participants  # dev: participant not in pasanaku # nosplit
-    assert erc1155.balanceOf[msg.sender][token_id] != 0  # dev: not a participant
-    assert not self._deposited_for_tick[token_id][tick_index][msg.sender]  # dev: already deposited # nosplit
-    assert amount >= pasanaku.amount  # dev: insufficient amount
-    assert block.timestamp - pasanaku.updated < _DAYS_10  # dev: not enough time passed # nosplit
+    assert msg.sender in pasanaku.participants  # dev: account not in pasanaku # nosplit
+    assert msg.sender != pasanaku.participants[index]  # dev: active participant cannot deposit # nosplit
+    assert not self._deposited_for_pasanaku[token_id][index][msg.sender]  # dev: account already deposited # nosplit
+    assert amount == pasanaku.amount  # dev: invalid deposit amount
 
-    self._deposited_for_tick[token_id][tick_index][msg.sender] = True
+    self._deposited_for_pasanaku[token_id][index][msg.sender] = True
 
-    log IPasanaku.TickDepositMarked(
-        participant=msg.sender,
+    log PasanakuDeposited(
+        account=msg.sender,
         token_id=token_id,
-        tick_index=tick_index,
-        asset=pasanaku.asset,
+        index=index,
+        asset=asset,
         amount=amount,
     )
     extcall IERC20(asset).transferFrom(msg.sender, self, amount)
@@ -166,19 +136,19 @@ def deposit_pasanaku(asset: address, amount: uint256, token_id: uint256):
 
 @external
 @nonreentrant
-def withdraw(asset: address, amount: uint256):
+def withdraw_collateral(asset: address, amount: uint256):
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
     assert amount > 0  # dev: invalid amount
 
     collateral: uint256 = self._collateral[msg.sender][asset]
     collateral_in_use: uint256 = self._collateral_in_use[msg.sender][asset]
     assert collateral > collateral_in_use  # dev: collateral in use
-    assert collateral - collateral_in_use >= amount  # dev: insufficient collateral 
+    assert collateral - collateral_in_use >= amount # dev: insufficient collateral # nosplit
 
     self._collateral[msg.sender][asset] -= amount
     extcall IERC20(asset).transfer(msg.sender, amount)
 
-    log IPasanaku.CollateralWithdrawn(
+    log CollateralWithdrawn(
         account=msg.sender,
         asset=asset,
         amount=amount,
@@ -188,31 +158,19 @@ def withdraw(asset: address, amount: uint256):
 
 @external
 def create_pasanaku(asset: address, amount: uint256) -> uint256:
-    """
-    @dev Appends a pending pasanaku with empty participants and returns its `pending_index`
-         (the value of `_counter` before increment). Emits `PasanakuCreated`.
-    @param asset Supported collateral token; must be in `_SUPPORTED_ASSETS`.
-    @param amount Per-tick payout amount for the round.
-    @return uint256 The pending index for `join_pasanaku`.
-    """
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
 
     token_id: uint256 = self._counter
     self._counter += 1
 
-    pasanaku: IPasanaku.Pasanaku = IPasanaku.Pasanaku(
-        token_id=empty(uint256),
-        asset=asset,
-        amount=amount,
-        participants=empty(DynArray[address, _PARTICIPANT_COUNT]),
-        active_participant=empty(uint256),
-        started=empty(uint256),
-        updated=empty(uint256),
-        ended=empty(uint256),
-    )
+    pasanaku: Pasanaku = empty(Pasanaku)
+    pasanaku.asset = asset
+    pasanaku.amount = amount
+    pasanaku.participants.append(msg.sender)
+    self._update_collateral_in_use(pasanaku)
     self._pasanakus[token_id] = pasanaku
 
-    log IPasanaku.PasanakuCreated(
+    log PasanakuCreated(
         token_id=token_id,
         asset=asset,
         amount=amount,
@@ -221,34 +179,17 @@ def create_pasanaku(asset: address, amount: uint256) -> uint256:
 
 
 @external
-@nonreentrant
 def join_pasanaku(token_id: uint256):
-    """
-    @dev Appends `msg.sender` as participant; increments `_collateral_in_use` by
-         `pasanaku.amount * _PARTICIPANT_COUNT`. Calls `_start_pasanaku` when the cohort fills.
-         Emits `PasanakuJoined`.
-    @notice Free collateral `_collateral` minus `_collateral_in_use` for `pasanaku.asset` must cover
-           the pledge above before join.
-    @param token_id `create_pasanaku` return; must satisfy `token_id < self._counter`.
-    """
-
     assert token_id < self._counter  # dev: invalid token id
 
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
+    pasanaku: Pasanaku = self._pasanakus[token_id]
     assert msg.sender not in pasanaku.participants  # dev: participant already joined # nosplit
 
-    pasanaku_amount: uint256 = pasanaku.amount * _PARTICIPANT_COUNT
-    assert self._collateral[msg.sender][pasanaku.asset] >= pasanaku_amount  # dev: insufficient collateral # nosplit
-
-    collateral: uint256 = self._collateral[msg.sender][pasanaku.asset]
-    in_use: uint256 = self._collateral_in_use[msg.sender][pasanaku.asset]
-    assert collateral - in_use >= pasanaku_amount  # dev: collateral already pledged # nosplit
-
     pasanaku.participants.append(msg.sender)
+    self._update_collateral_in_use(pasanaku)
     self._pasanakus[token_id] = pasanaku
-    self._collateral_in_use[msg.sender][pasanaku.asset] += pasanaku_amount
 
-    log IPasanaku.PasanakuJoined(
+    log PasanakuJoined(
         token_id=token_id,
         account=msg.sender,
         participant_count=len(pasanaku.participants),
@@ -261,21 +202,13 @@ def join_pasanaku(token_id: uint256):
 @external
 @nonreentrant
 def tick(token_id: uint256):
-    """
-    @dev Uses `tick_index := pasanaku.active_participant` (then increments `active_participant`);
-         transfers `pasanaku.amount` of `pasanaku.asset` to the chosen participant, updates timestamps, emits `PasanakuTicked`
-         until the last index emits `PasanakuEnded` and calls `_unlock_collateral_in_use`.
-    @notice Requires `_DAYS_30` elapsed since `pasanaku.updated` (last payout or round start).
-    @param token_id The ERC-1155 token id (`token_id`) for the active round.
-    """
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
+    pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
     assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
-    assert pasanaku.updated + _DAYS_30 <= block.timestamp  # dev: not enough time passed # nosplit
-    assert block.timestamp - pasanaku.updated >= _DAYS_10  # dev: not enough time passed # nosplit
+    assert pasanaku.updated + _DAYS_40 <= block.timestamp  # dev: not enough time passed # nosplit
 
-    index: uint256 = pasanaku.active_participant
-    pasanaku.active_participant += 1
+    index: uint256 = pasanaku.index
+    pasanaku.index += 1
 
     participant: address = pasanaku.participants[index]
     pasanaku.updated = block.timestamp
@@ -283,14 +216,14 @@ def tick(token_id: uint256):
     if index == _PARTICIPANT_COUNT - 1:
         pasanaku.ended = block.timestamp
         self._unlock_collateral_in_use(token_id, pasanaku)
-        log IPasanaku.PasanakuEnded(
+        log PasanakuEnded(
             token_id=token_id,
             asset=pasanaku.asset,
             amount=pasanaku.amount,
             ended_at=block.timestamp,
         )
     else:
-        log IPasanaku.PasanakuTicked(
+        log PasanakuTicked(
             token_id=token_id,
             tick_index=index,
             recipient=participant,
@@ -299,12 +232,10 @@ def tick(token_id: uint256):
             updated_at=block.timestamp,
         )
 
-    # Transfer collateral to participant
-    amount: uint256 = self._move_deposit_or_collateral(token_id)
-    extcall IERC20(pasanaku.asset).transfer(participant, amount)
-
-    # Update pasanaku in storage
     self._pasanakus[token_id] = pasanaku
+
+    amount: uint256 = self._update_collateral(token_id)
+    extcall IERC20(pasanaku.asset).transfer(participant, amount)
 
 
 @external
@@ -332,30 +263,28 @@ def setApprovalForAll(operator: address, approved: bool):
 
 @external
 @view
-def uri(id: uint256) -> String[512]:
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[id]
-
-    if pasanaku.started == empty(uint256):
-        return "https://pasanaku.fun/pasanaku/started"
+def uri(token_id: uint256) -> String[512]:
+    pasanaku: Pasanaku = self._pasanakus[token_id]
 
     if pasanaku.ended != empty(uint256):
         return "https://pasanaku.fun/pasanaku/ended"
-
-    if pasanaku.started != empty(uint256):
-        return "https://pasanaku.fun/pasanaku/started"
-
-    return "https://pasanaku.fun/pasanaku/pending"
+    elif pasanaku.started != empty(uint256):
+        return "https://pasanaku.fun/pasanaku/ongoing"
+    elif token_id < self._counter:
+        return "https://pasanaku.fun/pasanaku/pending"
+    else:
+        return "https://pasanaku.fun/pasanaku/not-created"
 
 
 @external
 @view
-def isApprovedForAll(arg0: address, arg1: address) -> bool:
+def isApprovedForAll(owner: address, operator: address) -> bool:
     return False
 
 
 @external
 @view
-def pasanaku(pasanaku_id: uint256) -> IPasanaku.Pasanaku:
+def pasanaku(pasanaku_id: uint256) -> Pasanaku:
     return self._pasanakus[pasanaku_id]
 
 
@@ -368,11 +297,9 @@ def collateral_in_use(participant: address, asset: address) -> uint256:
 @external
 @view
 def deposited_for_pasanaku(
-    pasanaku_id: uint256, tick_index: uint256, participant: address
+    pasanaku_id: uint256, index: uint256, participant: address
 ) -> bool:
-    return self._deposited_for_tick[pasanaku_id][tick_index][
-        participant
-    ]
+    return self._deposited_for_pasanaku[pasanaku_id][index][participant]  # nosplit
 
 
 @external
@@ -394,8 +321,19 @@ def collateral(participant: address, asset: address) -> uint256:
 
 
 @internal
+def _update_collateral_in_use(pasanaku: Pasanaku):
+    pasanaku_amount: uint256 = pasanaku.amount * _PARTICIPANT_COUNT
+    assert self._collateral[msg.sender][pasanaku.asset] >= pasanaku_amount  # dev: insufficient collateral # nosplit
+
+    collateral: uint256 = self._collateral[msg.sender][pasanaku.asset]
+    in_use: uint256 = self._collateral_in_use[msg.sender][pasanaku.asset]
+    assert collateral - in_use >= pasanaku_amount  # dev: collateral already pledged # nosplit
+    self._collateral_in_use[msg.sender][pasanaku.asset] += pasanaku_amount
+
+
+@internal
 def _start_pasanaku(token_id: uint256):
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
+    pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.asset != empty(address)  # dev: pasanaku not created
 
     # Update pasanaku
@@ -407,10 +345,9 @@ def _start_pasanaku(token_id: uint256):
     self._pasanakus[token_id] = pasanaku
 
     # Mint tokens
-    for participant: address in pasanaku.participants:
-        erc1155._safe_mint(participant, token_id, _TOKEN_MINT_AMOUNT, b"")
+    # TODO: mint tokens
 
-    log IPasanaku.PasanakuStarted(
+    log PasanakuStarted(
         token_id=token_id,
         asset=pasanaku.asset,
         amount=pasanaku.amount,
@@ -419,40 +356,34 @@ def _start_pasanaku(token_id: uint256):
 
 
 @internal
-def _unlock_collateral_in_use(token_id: uint256, pasanaku: IPasanaku.Pasanaku):
-    """
-    @dev After the final payout, reduces `_collateral_in_use` for each cohort member by full-round
-         pledge (`pasanaku.amount * _PARTICIPANT_COUNT`).
-    @param token_id Unused in body; echoed for readability at `tick` call site.
-    @param pasanaku Snapshot of the cohort; pledge scaled by `amount * _PARTICIPANT_COUNT` per participant.
-    """
+def _unlock_collateral_in_use(token_id: uint256, pasanaku: Pasanaku):
     for participant: address in pasanaku.participants:
-        self._collateral_in_use[participant][pasanaku.asset] -= (
-            pasanaku.amount * _PARTICIPANT_COUNT
-        )
+        for index: uint256 in range(pasanaku.index-1, bound=_PARTICIPANT_COUNT):
+            if self._deposited_for_pasanaku[token_id][index][participant]:
+                self._collateral_in_use[participant][pasanaku.asset] -= pasanaku.amount
 
 
 @internal
-def _move_deposit_or_collateral(token_id: uint256) -> uint256:
-    assert token_id >= _TOKEN_ID_OFFSET  # dev: invalid token id
+def _update_collateral(token_id: uint256) -> uint256:
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    index: uint256 = pasanaku.index
 
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
-    index: uint256 = pasanaku.active_participant
-    assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
-
+    amount: uint256 = 0
     for p: address in pasanaku.participants:
-        if not self._deposited_for_tick[token_id][index][p]:
+        if not self._deposited_for_pasanaku[token_id][index][p]:
             self._collateral[p][pasanaku.asset] -= pasanaku.amount
-    
-    return 0
+            self._collateral_in_use[p][pasanaku.asset] -= pasanaku.amount
+        amount += pasanaku.amount
+
+    return amount
 
 
 @internal
 @view
 def _amount_deposited_for_tick(token_id: uint256, index: uint256) -> uint256:
-    pasanaku: IPasanaku.Pasanaku = self._pasanakus[token_id]
+    pasanaku: Pasanaku = self._pasanakus[token_id]
     total: uint256 = 0
     for p: address in pasanaku.participants:
-        if not self._deposited_for_tick[token_id][index][p]:
+        if not self._deposited_for_pasanaku[token_id][index][p]:
             total += pasanaku.amount
     return total
