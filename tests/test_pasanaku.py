@@ -2,8 +2,8 @@ import boa
 
 from tests.conftest import (
     DAYS_40,
-    PASANAKU_AMOUNT_RAW,
     PARTICIPANT_COUNT,
+    PASANAKU_AMOUNT_RAW,
     create_and_join_all,
     fund_collateral_for_users,
     penalty_per_amount,
@@ -23,7 +23,7 @@ def test_deploy_supported_assets_and_participant_count(
     assert pasanaku_contract.participant_count() == PARTICIPANT_COUNT
 
 
-def test_create_pasanaku_returns_zero(
+def test_create_first_pasanaku_returns_zero(
     pasanaku_contract, nine_users, owner, usdc_contract
 ):
     amount_raw = PASANAKU_AMOUNT_RAW
@@ -33,6 +33,16 @@ def test_create_pasanaku_returns_zero(
     with boa.env.prank(nine_users[0]):
         idx = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
     assert idx == 0
+
+
+def test_add_collateral(pasanaku_contract, owner, usdc_contract, nine_users):
+    collateral_amount = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, nine_users, collateral_amount, raw=True
+    )
+    for user in nine_users:
+        onchain_collateral = pasanaku_contract.collateral(user, usdc_contract.address)
+        assert onchain_collateral == collateral_amount
 
 
 def test_join_insufficient_collateral_reverts(
@@ -391,9 +401,7 @@ def test_deposit_increases_contract_escrow_balance(
         usdc_contract.approve(pasanaku_contract.address, amount_raw)
         pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
 
-    assert (
-        usdc_contract.balanceOf(pasanaku_contract.address) == pre_escrow + amount_raw
-    )
+    assert usdc_contract.balanceOf(pasanaku_contract.address) == pre_escrow + amount_raw
 
 
 def test_tick_decreases_contract_escrow_by_payout(
@@ -422,7 +430,7 @@ def test_tick_decreases_contract_escrow_by_payout(
     )
 
 
-def test_second_active_pasanaku_same_asset_reverts(
+def test_second_active_pasanaku_same_asset_starts(
     pasanaku_contract, owner, usdc_contract
 ):
     users = []
@@ -439,10 +447,7 @@ def test_second_active_pasanaku_same_asset_reverts(
         users[:PARTICIPANT_COUNT],
         amount_raw,
     )
-    tid0 = token_id_from_last_started(pasanaku_contract)
-    assert (
-        pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == tid0
-    )
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 1
 
     fund_collateral_for_users(
         pasanaku_contract,
@@ -463,9 +468,12 @@ def test_second_active_pasanaku_same_asset_reverts(
     fund_collateral_for_users(
         pasanaku_contract, usdc_contract, owner, [last_joiner], amount_raw
     )
-    with boa.reverts(dev="active pasanaku exists # nosplit"):
-        with boa.env.prank(last_joiner):
-            pasanaku_contract.join_pasanaku(pending_idx)
+    with boa.env.prank(last_joiner):
+        pasanaku_contract.join_pasanaku(pending_idx)
+
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 2
+    st = pasanaku_contract.pasanaku(pending_idx)
+    assert st.started != 0
 
 
 def test_pasanaku_starts_after_first_ends(
@@ -499,6 +507,4 @@ def test_pasanaku_starts_after_first_ends(
     )
     tid1 = token_id_from_last_started(pasanaku_contract)
     assert tid1 != tid0
-    assert (
-        pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == tid1
-    )
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 1

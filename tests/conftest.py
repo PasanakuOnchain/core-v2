@@ -1,13 +1,13 @@
-import pytest
 import boa
-from src import Pasanaku as pasanaku
-from tests.mocks import erc20_mock
+import pytest
 
+from src import pasanaku
+from tests.mocks import erc20_mock
 
 PASANAKU_AMOUNT_RAW = 100 * 10**6
 DAYS_40 = 40 * 24 * 60 * 60
 PARTICIPANT_COUNT = 9
-_MISS_PENALTY_BPS = 50
+_MISS_PENALTY_BPS = 5
 _BPS_PRECISION = 10000
 
 
@@ -29,8 +29,10 @@ def token_id_from_last_started(pasanaku_contract):
     raise RuntimeError("PasanakuStarted log not found")
 
 
-def fund_collateral_for_users(pasanaku_contract, asset, owner, users, amount_raw):
-    need = pledge(amount_raw)
+def fund_collateral_for_users(
+    pasanaku_contract, asset, owner, users, amount_raw, raw=False
+):
+    need = amount_raw if raw else pledge(amount_raw)
     for u in users:
         with boa.env.prank(owner):
             asset.mint(u, need)
