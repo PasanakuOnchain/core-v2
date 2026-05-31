@@ -2,7 +2,6 @@ import pytest
 import boa
 from src import Pasanaku as pasanaku
 from tests.mocks import erc20_mock
-from tests.mocks import fluid_ftoken_mock
 
 
 PASANAKU_AMOUNT_RAW = 100 * 10**6
@@ -133,24 +132,12 @@ def dai_contract(owner):
 
 
 @pytest.fixture
-def fluid_ftokens(owner, usdc_contract, usdt_contract, weth_contract, dai_contract):
-    with boa.env.prank(owner):
-        return [
-            fluid_ftoken_mock.deploy(usdc_contract.address),
-            fluid_ftoken_mock.deploy(usdt_contract.address),
-            fluid_ftoken_mock.deploy(weth_contract.address),
-            fluid_ftoken_mock.deploy(dai_contract.address),
-        ]
-
-
-@pytest.fixture
 def pasanaku_contract(
     owner,
     usdc_contract,
     usdt_contract,
     weth_contract,
     dai_contract,
-    fluid_ftokens,
 ):
     assets = [
         usdc_contract.address,
@@ -158,9 +145,8 @@ def pasanaku_contract(
         weth_contract.address,
         dai_contract.address,
     ]
-    f_tokens = [ft.address for ft in fluid_ftokens]
     with boa.env.prank(owner):
-        return pasanaku.deploy(assets, f_tokens)
+        return pasanaku.deploy(assets)
 
 
 @pytest.fixture

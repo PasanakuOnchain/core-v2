@@ -71,9 +71,7 @@ def test_uri_ended_game(pasanaku_contract, owner, usdc_contract, started_pasanak
                 usdc_contract.mint(u, amount_raw)
             with boa.env.prank(u):
                 usdc_contract.approve(pasanaku_contract.address, amount_raw)
-                pasanaku_contract.deposit_to_pasanaku(
-                    usdc_contract.address, amount_raw, tid
-                )
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
         boa.env.time_travel(seconds=DAYS_40)
         pasanaku_contract.tick(tid)
 
