@@ -26,33 +26,25 @@ Protocol summary:
     • Join/create lock pledge(amount) = amount*N + amount*N*PENALTY_BPS//10000 into _collateral_in_use.
 """
 
-
 from ethereum.ercs import IERC20
-
 
 from ethereum.ercs import IERC165
 implements: IERC165
 
-
 from snekmate.tokens.interfaces import IERC1155
 implements: IERC1155
-
 
 from snekmate.tokens.interfaces import IERC1155MetadataURI
 implements: IERC1155MetadataURI
 
-
 from snekmate.tokens import erc1155
 initializes: erc1155[ownable := ow]
-
 
 from snekmate.auth import ownable as ow
 initializes: ow
 
-
 from snekmate.auth import ownable_2step as ow2step
 initializes: ow2step[ownable := ow]
-
 
 exports: (
     ow2step.owner,
@@ -155,7 +147,6 @@ _SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
 _SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
 _TOKEN_AMOUNT: constant(uint256) = 1
 _BPS_PRECISION: constant(uint256) = 10000
-
 
 _counter: uint256
 _pasanakus: HashMap[uint256, Pasanaku]
@@ -509,7 +500,9 @@ def _unlock_collateral_in_use(token_id: uint256, pasanaku: Pasanaku):
     pledge_amt: uint256 = self._pledge(pasanaku.amount)
     for participant: address in pasanaku.participants:
         slashed: uint256 = self._slash_from_in_use[token_id][participant]
-        self._collateral_in_use[participant][pasanaku.asset] -= pledge_amt - slashed
+        self._collateral_in_use[participant][pasanaku.asset] -= (
+            pledge_amt - slashed
+        )
 
 
 @internal
@@ -537,7 +530,6 @@ def _settle_round(
             self._slash_from_in_use[token_id][p] += slash_total
             recipient_payout += amt
             penalties += penalty_per
-
     return recipient_payout, penalties
 
 
