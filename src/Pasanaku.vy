@@ -7,23 +7,26 @@
 @license GNU Affero General Public License v3.0 only
 @author rafael-abuawad
 
-@dev Supported assets constructor triple is deployment-specific canonical ERC20 addresses
-      (intended identities: wstETH, USDC, USDT, GHO on the target chain). Standard transfer
-      semantics only — no fee on transfer or rebasing; internal balances match IERC20 movers.
+@dev Constructor takes four deployment-specific supported ERC20 addresses (see deploy script
+      env vars). Standard transfer semantics only — no fee on transfer or rebasing; internal
+      balances match IERC20 movers. Non-upgradeable instances; no pause or emergency override.
 
 Protocol summary:
-    • N = _PARTICIPANT_COUNT participants; creator joins first; pool starts full.
+    • N = _PARTICIPANT_COUNT participants; creator joins first; pool auto-starts when full.
     • Window index k equals pasanaku.index before tick: recipient is participants[k];
       all other participants must deposit pasanaku.amount for that k (recipient exempt).
-    • Each tick (after _DAYS_40): settle round k — recipient receives (N-1)*amount in principal.
-      Non-recipients who did not deposit lose amount plus a miss penalty (bps) from
-      _collateral; principal fills the pool. All forfeited penalty ERC20 goes to owner()
-      (treasury); `PasanakuPenalties` logs the amount.
+    • Each tick (after _DAYS_40): permissionless settle round k — recipient receives
+      (N-1)*amount in principal. Non-recipients who did not deposit lose amount plus a miss
+      penalty (bps) from _collateral; principal still credits the payout. Penalty ERC20 goes
+      to owner() (treasury); `PasanakuPenalties` logs the amount.
     • Obligor deposits: underlying ERC20 is held on-contract as escrow until tick pays the
       round recipient.
-    • One active pasanaku per supported asset: only a started, not-yet-ended pool may hold
-      the active slot; pending pools for the same asset may coexist.
-    • Join/create lock pledge(amount) = amount*N + amount*N*PENALTY_BPS//10000 into _collateral_in_use.
+    • active_pasanaku_by_asset is a counter of started, not-yet-ended pools per asset (not a
+      hard cap of one); multiple concurrent active pools per asset are possible. Pending pools
+      for the same asset may coexist.
+    • Join/create lock pledge(amount) = amount*N + amount*N*_MISS_PENALTY_BPS//10000 into
+      _collateral_in_use. Only free collateral (collateral minus in_use) is withdrawable.
+    • ERC1155 membership receipts are non-transferable (soul-bound).
 """
 
 from ethereum.ercs import IERC20
@@ -175,7 +178,7 @@ def add_collateral(asset: address, amount: uint256):
         asset=asset,
         amount=amount,
     )
-    success: bool = extcall IERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True) # nosplit
+    success: bool = extcall IERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
     assert success  # dev: transferFrom failed
 
 
@@ -198,7 +201,7 @@ def deposit_to_pasanaku(amount: uint256, token_id: uint256):
     self._deposited_for_pasanaku[token_id][round_idx][msg.sender] = True
     self._successful_obligated_deposits[token_id][msg.sender] += 1
 
-    success: bool = extcall IERC20(pasanaku.asset).transferFrom(msg.sender, self, amount, default_return_value=True) # nosplit
+    success: bool = extcall IERC20(pasanaku.asset).transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
     assert success  # dev: transferFrom failed
 
     log PasanakuDeposited(
@@ -223,7 +226,7 @@ def withdraw_collateral(asset: address, amount: uint256):
 
     self._collateral[msg.sender][asset] -= amount
 
-    success: bool = extcall IERC20(asset).transfer(msg.sender, amount, default_return_value=True) # nosplit
+    success: bool = extcall IERC20(asset).transfer(msg.sender, amount, default_return_value=True)  # nosplit
     assert success  # dev: transfer failed
 
     log CollateralWithdrawn(
@@ -356,14 +359,14 @@ def setApprovalForAll(operator: address, approved: bool):
 def uri(token_id: uint256) -> String[512]:
     if token_id >= self._counter:
         return "https://pasanaku.fun/pasanaku/not-created"
-    
+
     pasanaku: Pasanaku = self._pasanakus[token_id]
     if pasanaku.ended != empty(uint256):
         return "https://pasanaku.fun/pasanaku/ended"
-    
+
     if pasanaku.started != empty(uint256):
         return "https://pasanaku.fun/pasanaku/ongoing"
-    
+
     return "https://pasanaku.fun/pasanaku/pending"
 
 
@@ -486,7 +489,7 @@ def _payout_recipient(
     if payout == 0:
         return
     asset: IERC20 = IERC20(pasanaku.asset)
-    success: bool = extcall asset.transfer(recipient, payout, default_return_value=True) # nosplit
+    success: bool = extcall asset.transfer(recipient, payout, default_return_value=True)  # nosplit
     assert success  # dev: transfer failed
 
 
@@ -526,7 +529,6 @@ def _settle_round(
             self._slash_from_in_use[token_id][p] += slash_total
             recipient_payout += amt
             penalties += penalty_per
-    
     return recipient_payout, penalties
 
 
