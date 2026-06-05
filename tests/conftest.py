@@ -23,6 +23,13 @@ def penalty_per_amount(amount_raw: int) -> int:
     return amount_raw * _MISS_PENALTY_BPS // 10_000
 
 
+def tick_and_claim(pasanaku_contract, token_id, round_idx, users):
+    pasanaku_contract.tick(token_id)
+    recipient = users[round_idx]
+    with boa.env.prank(recipient):
+        pasanaku_contract.claim_round_payout(token_id, round_idx)
+
+
 def token_id_from_last_started(pasanaku_contract):
     for log in reversed(pasanaku_contract.get_logs()):
         if type(log).__name__ == "PasanakuStarted":
