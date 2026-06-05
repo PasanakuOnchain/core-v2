@@ -87,6 +87,11 @@ event PasanakuJoined:
     account: indexed(address)
     participant_count: uint256
 
+event PasanakuLeft:
+    token_id: indexed(uint256)
+    account: indexed(address)
+    participant_count: uint256
+
 
 event PasanakuStarted:
     token_id: indexed(uint256)
@@ -127,12 +132,17 @@ event PasanakuEnded:
     ended_at: uint256
 
 
+event StaleTimeSet:
+    days: uint256
+
+
 struct Pasanaku:
     token_id: uint256
     asset: address
     amount: uint256
     participants: DynArray[address, _PARTICIPANT_COUNT]
     index: uint256
+    created: uint256
     started: uint256
     updated: uint256
     ended: uint256
@@ -141,6 +151,8 @@ struct Pasanaku:
 _PARTICIPANT_COUNT: constant(uint256) = 9
 _MISS_PENALTY_BPS: constant(uint256) = 5
 _DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
+_DAYS_3: constant(uint256) = 3 * 24 * 60 * 60
+_DAYS_7: constant(uint256) = 7 * 24 * 60 * 60
 _SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
 _SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
 _TOKEN_AMOUNT: constant(uint256) = 1
@@ -154,12 +166,14 @@ _deposited_for_pasanaku: HashMap[uint256, HashMap[uint256, HashMap[address, bool
 _successful_obligated_deposits: HashMap[uint256, HashMap[address, uint256]]
 _slash_from_in_use: HashMap[uint256, HashMap[address, uint256]]
 _active_pasanaku_by_asset: HashMap[address, uint256]
+_stale_time: uint256
 
 
 @deploy
 @payable
 def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
     _SUPPORTED_ASSETS = supported_assets
+    self._stale_time = _DAYS_7
 
     ow.__init__()
     ow2step.__init__()
@@ -249,6 +263,7 @@ def create_pasanaku(asset: address, amount: uint256) -> uint256:
     pasanaku.asset = asset
     pasanaku.amount = amount
     pasanaku.participants.append(msg.sender)
+    pasanaku.created = block.timestamp
     self._pasanakus[token_id] = pasanaku
     self._update_collateral_in_use(pasanaku)
 
@@ -284,6 +299,26 @@ def join_pasanaku(token_id: uint256):
 
 @external
 @nonreentrant
+def leave_pasanaku(token_id: uint256):
+    assert token_id < self._counter  # dev: invalid token id
+
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert pasanaku.started == empty(uint256)  # dev: pasanaku not started
+    assert pasanaku.created + self._stale_time <= block.timestamp  # dev: pasanaku is not stale
+    assert msg.sender in pasanaku.participants  # dev: participant not in pasanaku # nosplit
+
+    self._unlock_participant_collateral_in_use(token_id, pasanaku, msg.sender)
+    pasanaku.participants = self._remove_from_array(pasanaku.participants, msg.sender)
+    self._pasanakus[token_id] = pasanaku
+
+    log PasanakuLeft(
+        token_id=token_id,
+        account=msg.sender,
+        participant_count=len(pasanaku.participants),
+    )
+
+@external
+@nonreentrant
 def tick(token_id: uint256):
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
@@ -316,7 +351,7 @@ def tick(token_id: uint256):
 
     pasanaku.index += 1
 
-    # Ending pasakanu if round index is the last one
+    # Ending pasanaku if round index is the last one
     if round_idx == _PARTICIPANT_COUNT - 1:
         pasanaku.ended = block.timestamp
         self._unlock_collateral_in_use(token_id, pasanaku)
@@ -329,6 +364,15 @@ def tick(token_id: uint256):
         self._active_pasanaku_by_asset[asset] -= 1
 
     self._pasanakus[token_id] = pasanaku
+
+
+@external
+def setStaleTime(days: uint256):
+    ow._check_owner()
+    assert days >= _DAYS_3, "pasanaku: invalid days"
+    assert days <= _DAYS_7, "pasanaku: invalid days"
+    self._stale_time = days
+    log StaleTimeSet(days=days)
 
 
 @external
@@ -496,12 +540,19 @@ def _payout_recipient(
 @internal
 def _unlock_collateral_in_use(token_id: uint256, pasanaku: Pasanaku):
     assert pasanaku.ended != empty(uint256)  # dev: pasanaku not ended
-    pledge_amt: uint256 = self._pledge(pasanaku.amount)
     for participant: address in pasanaku.participants:
-        slashed: uint256 = self._slash_from_in_use[token_id][participant]
-        self._collateral_in_use[participant][pasanaku.asset] -= (
-            pledge_amt - slashed
-        )
+        self._unlock_participant_collateral_in_use(token_id, pasanaku, participant)
+
+
+@internal
+def _unlock_participant_collateral_in_use(
+    token_id: uint256,
+    pasanaku: Pasanaku,
+    participant: address,
+):
+    pledge_amt: uint256 = self._pledge(pasanaku.amount)
+    slashed: uint256 = self._slash_from_in_use[token_id][participant]
+    self._collateral_in_use[participant][pasanaku.asset] -= pledge_amt - slashed
 
 
 @internal
@@ -560,3 +611,25 @@ def _pledge(amount: uint256) -> uint256:
     total_amount: uint256 = amount * _PARTICIPANT_COUNT
     total_penalties: uint256 = total_amount * _MISS_PENALTY_BPS // _BPS_PRECISION
     return total_amount + total_penalties
+
+
+@internal
+@pure
+def _remove_from_array(
+    participants: DynArray[address, _PARTICIPANT_COUNT],
+    target: address,
+) -> DynArray[address, _PARTICIPANT_COUNT]:
+    length: uint256 = len(participants)
+    assert length > 0  # dev: empty participants
+
+    found: bool = False
+    last_idx: uint256 = length - 1
+    temp: address = participants[last_idx]
+    for i: uint256 in range(length, bound=_PARTICIPANT_COUNT):
+        if participants[i] == target:
+            participants[i] = temp
+            found = True
+            break
+    assert found  # dev: participant not in pasanaku
+    participants.pop()
+    return participants

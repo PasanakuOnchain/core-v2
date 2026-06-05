@@ -5,6 +5,7 @@ from src import pasanaku
 from tests.mocks import erc20_mock
 
 PASANAKU_AMOUNT_RAW = 100 * 10**6
+DAYS_3 = 3 * 24 * 60 * 60
 DAYS_40 = 40 * 24 * 60 * 60
 PARTICIPANT_COUNT = 9
 _MISS_PENALTY_BPS = 5

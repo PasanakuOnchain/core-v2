@@ -11,7 +11,7 @@ A **pasanaku** is a fixed-membership pool over one supported ERC20:
 1. Participants pre-fund **collateral** per asset, then **create** or **join** a pool with a chosen per-round **amount** (raw token units, e.g. `100 * 10**6` for 100 USDC with 6 decimals).
 2. When the ninth member joins, the pool **starts** automatically. Membership is fixed; the ERC1155 receipt is a non-transferable membership record.
 3. For each round index `k` (0 … 8), one **recipient** receives principal from the other eight **obligors**. Obligors deposit exactly `amount` during the window; the recipient does not deposit that round.
-4. After `updated + 40 days`, anyone may call **`tick`** to settle the round, advance the index, and pay the recipient.
+4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, advance the index, and pay the recipient.
 5. After nine ticks, the pool **ends** and pledged collateral unlocks (minus any amounts already slashed during the pool).
 
 Round deposits sit in contract escrow until tick pays the recipient. There is no external lending integration.
@@ -20,12 +20,14 @@ Round deposits sit in contract escrow until tick pays the recipient. There is no
 
 Constants from the contract: `N = 9`, `MISS_PENALTY_BPS = 5` (0.05% of `amount` per missed obligor deposit).
 
-| Quantity | Formula | Meaning |
-|----------|---------|---------|
-| Per-round obligor deposit | `amount` | Exact ERC20 units each non-recipient must transfer for the current round |
-| Recipient payout (successful tick) | `(N - 1) * amount` | Eight obligor principals, from escrow and/or slash |
-| Collateral lock per pool | `pledge(amount) = amount * N + amount * N * MISS_PENALTY_BPS / 10000` | Locked on create/join; released after pool ends |
-| Miss penalty per obligor | `amount * MISS_PENALTY_BPS / 10000` | Taken from collateral if deposit missing at tick; sent to `owner()` treasury |
+
+| Quantity                           | Formula                                                               | Meaning                                                                      |
+| ---------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Per-round obligor deposit          | `amount`                                                              | Exact ERC20 units each non-recipient must transfer for the current round     |
+| Recipient payout (successful tick) | `(N - 1) * amount`                                                    | Eight obligor principals, from escrow and/or slash                           |
+| Collateral lock per pool           | `pledge(amount) = amount * N + amount * N * MISS_PENALTY_BPS / 10000` | Locked on create/join; released after pool ends                              |
+| Miss penalty per obligor           | `amount * MISS_PENALTY_BPS / 10000`                                   | Taken from collateral if deposit missing at tick; sent to `owner()` treasury |
+
 
 **Example** (6-decimal USDC, `amount = 100_000_000` = 100 USDC):
 
@@ -40,12 +42,12 @@ Penalties do not reduce the recipient’s principal target for that round; they 
 
 - Each round has a **40-day deposit window** starting from the pool’s last `updated` timestamp (start time on round 0).
 - Obligors may `deposit_to_pasanaku` any time before tick, while the pool is active and they are not the current recipient.
-- **`tick` is permissionless** once `block.timestamp >= updated + 40 days`. No admin must advance rounds.
+- `**tick` is permissionless** once `block.timestamp >= updated + 40 days`. No admin must advance rounds.
 
 ## Collateral and withdrawals
 
-- **`add_collateral`**: increase per-asset balance held by the contract.
-- **`withdraw_collateral`**: only **free collateral** — `collateral - collateral_in_use` — is withdrawable while obligations are active.
+- `**add_collateral`**: increase per-asset balance held by the contract.
+- `**withdraw_collateral**`: only **free collateral** — `collateral - collateral_in_use` — is withdrawable while obligations are active.
 - Create/join increases `collateral_in_use` by `pledge(amount)` for that pool’s asset.
 
 ## Active pools per asset
@@ -106,14 +108,16 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 
 **Canonical read model** — prefer views over inferring from transfers:
 
-| View | Use |
-|------|-----|
-| `pasanaku(id)` | Pool state: asset, amount, participants, index, started/updated/ended |
-| `deposited_for_pasanaku(id, index, participant)` | Round deposit flags |
-| `collateral` / `free_collateral` / `collateral_in_use` | Participant balances |
-| `pledge(amount)` | Required lock for a given per-round amount |
-| `active_pasanaku_for_asset(asset)` | Active pool count (not a uniqueness guarantee) |
-| `successful_obligated_deposits` | Historical deposit count per participant |
+
+| View                                                   | Use                                                                   |
+| ------------------------------------------------------ | --------------------------------------------------------------------- |
+| `pasanaku(id)`                                         | Pool state: asset, amount, participants, index, started/updated/ended |
+| `deposited_for_pasanaku(id, index, participant)`       | Round deposit flags                                                   |
+| `collateral` / `free_collateral` / `collateral_in_use` | Participant balances                                                  |
+| `pledge(amount)`                                       | Required lock for a given per-round amount                            |
+| `active_pasanaku_for_asset(asset)`                     | Active pool count (not a uniqueness guarantee)                        |
+| `successful_obligated_deposits`                        | Historical deposit count per participant                              |
+
 
 **Lifecycle events** (index for state changes):
 
@@ -183,4 +187,5 @@ docs/adr/            # Architecture decision records
 - Record hard-to-reverse trade-offs in `docs/adr/` (see `docs/adr/README.md`).
 - Run `mox test` before opening a PR.
 
-Agent-oriented terminology: **`CONTEXT.md`**. Human protocol reference: this README + NatSpec on `Pasanaku.vy`.
+Agent-oriented terminology: `CONTEXT.md`.  
+Human protocol reference: this README + NatSpec on `Pasanaku.vy`.
