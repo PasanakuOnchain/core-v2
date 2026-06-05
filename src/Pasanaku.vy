@@ -156,7 +156,7 @@ struct Pasanaku:
     ended: uint256
 
 
-_PARTICIPANT_COUNT: constant(uint256) = 9
+_PARTICIPANT_COUNT: constant(uint256) = 10
 _MISS_PENALTY_BPS: constant(uint256) = 5
 _DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
 _DAYS_3: constant(uint256) = 3 * 24 * 60 * 60

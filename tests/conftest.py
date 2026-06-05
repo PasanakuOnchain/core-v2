@@ -7,7 +7,7 @@ from tests.mocks import erc20_mock
 PASANAKU_AMOUNT_RAW = 100 * 10**6
 DAYS_3 = 3 * 24 * 60 * 60
 DAYS_40 = 40 * 24 * 60 * 60
-PARTICIPANT_COUNT = 9
+PARTICIPANT_COUNT = 10
 _MISS_PENALTY_BPS = 5
 _BPS_PRECISION = 10000
 
@@ -80,7 +80,7 @@ def bob():
 
 
 @pytest.fixture
-def nine_users():
+def users():
     addrs = []
     for _ in range(PARTICIPANT_COUNT):
         addr = boa.env.generate_address()
@@ -160,18 +160,18 @@ def pasanaku_contract(
 
 
 @pytest.fixture
-def started_pasanaku(pasanaku_contract, owner, usdc_contract, nine_users):
+def started_pasanaku(pasanaku_contract, owner, usdc_contract, users):
     amount_raw = PASANAKU_AMOUNT_RAW
     create_and_join_all(
         pasanaku_contract,
         usdc_contract,
         owner,
-        nine_users,
+        users,
         amount_raw,
     )
     token_id = token_id_from_last_started(pasanaku_contract)
     return {
         "token_id": token_id,
         "amount_raw": amount_raw,
-        "users": nine_users,
+        "users": users,
     }

@@ -26,9 +26,9 @@ def test_set_approval_for_all_reverts(pasanaku_contract, alice, bob):
             pasanaku_contract.setApprovalForAll(bob, True)
 
 
-def test_is_approved_for_all_always_false(pasanaku_contract, nine_users):
-    for user_a in nine_users:
-        for user_b in nine_users:
+def test_is_approved_for_all_always_false(pasanaku_contract, users):
+    for user_a in users:
+        for user_b in users:
             if user_a != user_b:
                 assert pasanaku_contract.isApprovedForAll(user_a, user_b) is False
 
@@ -39,15 +39,15 @@ def test_uri_unknown_token_not_created(pasanaku_contract):
     )
 
 
-def test_uri_pending_token(pasanaku_contract, owner, nine_users, usdc_contract):
+def test_uri_pending_token(pasanaku_contract, owner, users, usdc_contract):
     fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
         owner,
-        [nine_users[0]],
+        [users[0]],
         PASANAKU_AMOUNT_RAW,
     )
-    with boa.env.prank(nine_users[0]):
+    with boa.env.prank(users[0]):
         pasanaku_contract.create_pasanaku(usdc_contract.address, PASANAKU_AMOUNT_RAW)
     assert pasanaku_contract.uri(0) == "https://pasanaku.fun/pasanaku/pending"
 
