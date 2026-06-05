@@ -20,9 +20,9 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ### Pasanaku
 
-**Language:** A fixed-size rotating savings pool instance identified by `token_id`, denominated in one supported ERC20, with nine participants and nine rounds.
+**Language:** A fixed-size rotating savings pool instance identified by `token_id`, denominated in one supported ERC20, with ten participants and ten rounds.
 
-**Relationships:** Created via `create_pasanaku`; joined until `N=9`; then `PasanakuStarted`. State in `pasanaku(id)`. ERC1155 `balanceOf` is a membership receipt only.
+**Relationships:** Created via `create_pasanaku`; joined until `N=10`; then `PasanakuStarted`. State in `pasanaku(id)`. ERC1155 `balanceOf` is a membership receipt only.
 
 **Example dialogue:**
 - ✅ “Pool `token_id=3` is on round index 2; the recipient is `participants[2]`.”
@@ -50,15 +50,15 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Example dialogue:**
 - ✅ “With `amount = 100e6` USDC, each obligor sends 100 USDC per round.”
-- ❌ “Amount is the total 900 USDC locked upfront.” (that’s `pledge`, not `amount`)
+- ❌ “Amount is the total 1000 USDC locked upfront.” (that’s `pledge`, not `amount`)
 
 ---
 
 ### Round / round index
 
-**Language:** Index `k = pasanaku.index` before `tick`. Nine rounds (`0 … 8`). Recipient = `participants[k]`.
+**Language:** Index `k = pasanaku.index` before `tick`. Ten rounds (`0 … 9`). Recipient = `participants[k]`.
 
-**Relationships:** Each round has a 40-day window from `updated`. Tick increments index; when `k == 8` tick ends the pool.
+**Relationships:** Each round has a 40-day window from `updated`. Tick increments index; when `k == N-1` (9) tick ends the pool.
 
 **Example dialogue:**
 - ✅ “Round 4’s recipient is the fifth participant in join order.”
@@ -73,20 +73,21 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 **Relationships:** Tracked in `_deposited_for_pasanaku`. Distinct from collateral (penalty backing).
 
 **Example dialogue:**
-- ✅ “Seven of eight obligors deposited; tick will slash the two missing.”
+- ✅ “Nine of ten obligors deposited; tick will slash the one missing.”
 - ❌ “Deposits go to the recipient’s wallet immediately.”
 
 ---
 
 ### tick
 
-**Language:** Permissionless `tick(token_id)` after `updated + 40 days`. Settles current round, pays recipient, routes penalties to owner, advances index or ends pool.
+**Language:** Permissionless `tick(token_id)` after `updated + 40 days`. Settles current round, accrues principal to `pending_payout`, routes penalties to owner, advances index or ends pool.
 
-**Relationships:** Emits `PasanakuTicked`; may emit `PasanakuPenalties`. Not callable by owner exclusively.
+**Relationships:** Emits `PasanakuTicked`; may emit `PasanakuPenalties`. Recipient claims ERC20 via `claim_round_payout`. Not callable by owner exclusively.
 
 **Example dialogue:**
 - ✅ “Anyone can tick once the 40-day window elapses.”
 - ❌ “The protocol admin must tick each round.”
+- ❌ “Tick sends principal directly to the recipient’s wallet.” (recipient must `claim_round_payout`)
 
 ---
 
@@ -152,12 +153,12 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ### Pending pool
 
-**Language:** `pasanaku.started == 0` — created, accepting joins, not yet nine participants.
+**Language:** `pasanaku.started == 0` — created, accepting joins, not yet ten participants.
 
 **Relationships:** Multiple pending pools per asset allowed. No ERC1155 mint until start.
 
 **Example dialogue:**
-- ✅ “Token id 5 is pending with 3/9 participants.”
+- ✅ “Token id 5 is pending with 3/10 participants.”
 - ❌ “Pending pool is ‘active’ in `active_pasanaku_for_asset`.” (counter only counts started, unended)
 
 ---
@@ -174,6 +175,30 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ---
 
+### pool_escrow
+
+**Language:** Per-pool ERC20 attribution ledger `_pool_escrow[token_id]`. View: `pool_escrow(token_id)`.
+
+**Relationships:** Credited on `deposit_to_pasanaku` and miss slashes in `_settle_round`; debited on payout accrual and penalty distribution. Isolates concurrent same-asset pools.
+
+**Example dialogue:**
+- ✅ “Pool B’s `pool_escrow` is unchanged after pool A ticks.”
+- ❌ “All deposits share one fungible pot with no per-pool ledger.”
+
+---
+
+### pending_payout / claim_round_payout
+
+**Language:** `pending_payout(token_id, round_idx)` holds accrued principal after `tick`. `claim_round_payout(token_id, round_idx)` transfers ERC20 to `participants[round_idx]` only.
+
+**Relationships:** Pool advances on `tick` even if claim is delayed. Distinct from collateral and from obligor deposit escrow.
+
+**Example dialogue:**
+- ✅ “Recipient called `claim_round_payout(3, 2)` after round 2 ticked.”
+- ❌ “Principal arrives in the recipient wallet inside the same `tick` transaction.”
+
+---
+
 ## Correct vs incorrect wording
 
 | Topic | ✅ Say | ❌ Avoid |
@@ -182,6 +207,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 | amount | Per-round obligor deposit in raw token units | Total savings goal or TVL |
 | pledge | `amount*N` plus penalty reserve | Same as single `amount` |
 | Payout | `(N-1) * amount` principal to recipient | `N * amount` |
+| Payout delivery | Recipient calls `claim_round_payout` after tick | Tick sends ERC20 directly to recipient wallet |
 | Penalty | 0.05% of `amount` per miss (5 bps) | 5% penalty |
 | Pools per asset | Counter; multiple active allowed | “One active pool per asset” (unless code adds `assert`) |
 | Assets | Four deployment-configured ERC20s | Hardcoding wstETH/GHO vs whatever `deploy.py` uses |
@@ -194,7 +220,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ## Quick constants (code)
 
-- `N = 9`
+- `N = 10`
 - `MISS_PENALTY_BPS = 5`
 - `_DAYS_40 = 40 * 24 * 60 * 60`
 - Supported asset count = 4 (addresses from constructor)
