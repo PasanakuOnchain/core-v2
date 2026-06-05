@@ -14,6 +14,8 @@ A **pasanaku** is a fixed-membership pool over one supported ERC20:
 4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, advance the index, and pay the recipient.
 5. After nine ticks, the pool **ends** and pledged collateral unlocks (minus any amounts already slashed during the pool).
 
+See [docs/protocol-flow.md](docs/protocol-flow.md) for a visual lifecycle.
+
 Round deposits sit in contract escrow until tick pays the recipient. There is no external lending integration.
 
 ## Economics (formula-first)
@@ -177,6 +179,7 @@ script/deploy.py     # Mainnet-style asset env deploy
 script/deploy_mocks.py
 tests/               # Titanoboa pytest suite
 CONTEXT.md           # Domain glossary for agents (/grill-with-docs)
+docs/protocol-flow.md # Onchain pool lifecycle diagram
 docs/adr/            # Architecture decision records
 ```
 
