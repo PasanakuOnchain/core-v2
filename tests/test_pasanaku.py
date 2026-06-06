@@ -5,6 +5,7 @@ from tests.conftest import (
     DAYS_40,
     PARTICIPANT_COUNT,
     PASANAKU_AMOUNT_RAW,
+    URI_ENDED,
     create_and_join_all,
     fund_collateral_for_users,
     penalty_per_amount,
@@ -143,7 +144,7 @@ def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral
     remaining = [users[0], users[2]]
 
     with boa.env.prank(owner):
-        pasanaku_contract.setStaleTime(DAYS_3)
+        pasanaku_contract.set_stale_time(DAYS_3)
     fund_collateral_for_users(
         pasanaku_contract, usdc_contract, owner, users, amount_raw
     )
@@ -280,7 +281,7 @@ def test_last_tick_ends_and_uri(
     st = pasanaku_contract.pasanaku(tid)
     assert st.ended != 0
     assert st.index == PARTICIPANT_COUNT
-    assert pasanaku_contract.uri(tid) == "https://pasanaku.fun/pasanaku/ended"
+    assert pasanaku_contract.uri(tid) == URI_ENDED
 
 
 def test_non_payer_slash_penalty_to_owner_not_eligibles(

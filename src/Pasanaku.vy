@@ -176,9 +176,7 @@ _slash_from_in_use: HashMap[uint256, HashMap[address, uint256]]
 _active_pasanaku_by_asset: HashMap[address, uint256]
 _stale_time: uint256
 _pool_escrow: HashMap[uint256, uint256]
-_pending_payout: HashMap[
-    uint256, HashMap[uint256, uint256]
-]  # token_id -> round_idx -> amount
+_pending_payout: HashMap[uint256, HashMap[uint256, uint256]]  # token_id -> round_idx -> amount # nosplit
 
 
 @deploy
@@ -189,7 +187,7 @@ def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
 
     ow.__init__()
     ow2step.__init__()
-    erc1155.__init__("https://pasanaku.fun/pasanaku/")
+    erc1155.__init__("")
 
 
 @external
@@ -385,7 +383,7 @@ def tick(token_id: uint256):
 
 
 @external
-def setStaleTime(days: uint256):
+def set_stale_time(days: uint256):
     ow._check_owner()
     assert days >= _DAYS_3  # dev: pasanaku stale time out of range
     assert days <= _DAYS_7  # dev: pasanaku stale time out of range
@@ -420,16 +418,25 @@ def setApprovalForAll(operator: address, approved: bool):
 @view
 def uri(token_id: uint256) -> String[512]:
     if token_id >= self._counter:
-        return "https://pasanaku.fun/pasanaku/not-created"
+        # pasanaku: not created
+        return "ipfs://QmbcELYwEiVu6n6nJhHmdqTRPfWD6eNHiXZhixKvhjAznF"
 
     pasanaku: Pasanaku = self._pasanakus[token_id]
     if pasanaku.ended != empty(uint256):
-        return "https://pasanaku.fun/pasanaku/ended"
+        # pasanaku: ended
+        return "ipfs://QmYA1EK6dEujhcdZMWbjk1gVoHyqEYDZoptHMzL8ppTfWH"
 
-    if pasanaku.started != empty(uint256):
-        return "https://pasanaku.fun/pasanaku/ongoing"
+    elif pasanaku.started != empty(uint256):
+        # pasanaku: ongoing
+        return "ipfs://QmYvMoHxQSPLbCaofRHEyskb7U5UEyq31gwH9pyM1WSEc4"
 
-    return "https://pasanaku.fun/pasanaku/pending"
+    elif pasanaku.started == empty(uint256) and pasanaku.created + self._stale_time <= block.timestamp: # nosplit
+        # pasanaku: stale
+        return "ipfs://QmcGBA3PSwZxq6RQQsWbUe4NNtbLCbaxuVpx1Jnv5qRF98"
+
+    else:
+        # pasanaku: pending
+        return "ipfs://QmZ9PeXU9sUbax7SPAbyoBZawNqCrdgtEYXdipzMYi4Rsp"
 
 
 @external
