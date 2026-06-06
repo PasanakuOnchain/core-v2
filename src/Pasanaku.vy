@@ -1,77 +1,73 @@
-# pragma version ==0.4.3
-# pragma nonreentrancy on
+# pragma version ~=0.4.3
+# pragma nonreentrancy off
 """
-@title `Pasanaku` - Rotating savings decentralized protocol
-@custom:contract-name Pasanaku
+@title Pasanaku
+@custom:contract-name pasanaku
+@notice Rotating savings pool with collateral-backed rounds.
 @license GNU Affero General Public License v3.0 only
-@author Rafael Abuawad <x.com/rabuawad_>
-@notice This code is for testing purposes only, is not production ready and is not audited.
-        Everything is subject to change. Use at your own risk.
-@custom:security-contact https://x.com/rabuawad_
+@author rafael-abuawad
+
+@dev Constructor takes four deployment-specific supported ERC20 addresses (see deploy script
+      env vars). Standard transfer semantics only — no fee on transfer or rebasing; internal
+      balances match IERC20 movers. Non-upgradeable instances; no pause or emergency override.
+
+Protocol summary:
+    • N = _PARTICIPANT_COUNT participants; creator joins first; pool auto-starts when full.
+    • Window index k equals pasanaku.index before tick: recipient is participants[k];
+      all other participants must deposit pasanaku.amount for that k (recipient exempt).
+    • Each tick (after _DAYS_40): permissionless settle round k — recipient receives
+      (N-1)*amount in principal. Non-recipients who did not deposit lose amount plus a miss
+      penalty (bps) from _collateral; principal still credits the payout. Penalty ERC20 goes
+      to owner() (treasury); `PasanakuPenalties` logs the amount.
+    • Obligor deposits: underlying ERC20 is held on-contract as escrow until tick pays the
+      round recipient.
+    • active_pasanaku_by_asset is a counter of started, not-yet-ended pools per asset (not a
+      hard cap of one); multiple concurrent active pools per asset are possible. Pending pools
+      for the same asset may coexist.
+    • Join/create lock pledge(amount) = amount*N + amount*N*_MISS_PENALTY_BPS//10000 into
+      _collateral_in_use. Only free collateral (collateral minus in_use) is withdrawable.
+    • ERC1155 membership receipts are non-transferable (soul-bound).
 """
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                           IMPORTS                            #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
+from ethereum.ercs import IERC20
+
 
 from ethereum.ercs import IERC165
 implements: IERC165
 
+
 from snekmate.tokens.interfaces import IERC1155
 implements: IERC1155
 
-from snekmate.auth import ownable as ow
-initializes: ow
+
+from snekmate.tokens.interfaces import IERC1155MetadataURI
+implements: IERC1155MetadataURI
+
 
 from snekmate.tokens import erc1155
 initializes: erc1155[ownable := ow]
 
-from ethereum.ercs import IERC20
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                           MODULES                            #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+from snekmate.auth import ownable as ow
+initializes: ow
+
+
+from snekmate.auth import ownable_2step as ow2step
+initializes: ow2step[ownable := ow]
+
 
 exports: (
-    erc1155.owner,
+    ow2step.owner,
+    ow2step.pending_owner,
+    ow2step.transfer_ownership,
+    ow2step.accept_ownership,
+    ow2step.renounce_ownership,
     erc1155.supportsInterface,
     erc1155.balanceOfBatch,
     erc1155.exists,
-    erc1155.balanceOf,
     erc1155.total_supply,
 )
-
-
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                          CONSTANTS                           #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
-PROTOCOL_FEE: constant(uint256) = as_wei_value(0.000075, "ether")
-MINT_TOKEN_AMOUNT: constant(uint256) = 1
-PARTICIPANTS_COUNT: constant(uint256) = 12
-CLAIM_GRACE_PERIOD: constant(uint256) = 10 * 24 * 60 * 60  # 10 days
-SUPPORTED_ASSETS_COUNT: constant(uint256) = 3
-MIN_LOBBY_DEADLINE: constant(uint256) = 1 * 24 * 60 * 60  # 1 day
-MAX_START_DATE: constant(uint256) = 35 * 24 * 60 * 60  # 35 days
-
-
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                            EVENTS                            #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
-event LobbyCreated:
-    asset: indexed(address)
-    tokenId: indexed(uint256)
-    amount: uint256
-
-
-event LobbyFinalized:
-    tokenId: indexed(uint256)
-
-
-event JoinedLobby:
-    account: indexed(address)
-    tokenId: indexed(uint256)
 
 
 event CollateralAdded:
@@ -80,251 +76,319 @@ event CollateralAdded:
     amount: uint256
 
 
-event CollateralRemoved:
+event CollateralWithdrawn:
     account: indexed(address)
+    asset: indexed(address)
+    amount: uint256
+    balance_after: uint256
+
+
+event PasanakuCreated:
+    token_id: indexed(uint256)
     asset: indexed(address)
     amount: uint256
 
 
-event Deposited:
-    participant: indexed(address)
-    tokenId: indexed(uint256)
-    index: uint256
-    amount: uint256
-    totalDeposited: uint256
+event PasanakuJoined:
+    token_id: indexed(uint256)
+    account: indexed(address)
+    participant_count: uint256
 
 
-event Claimed:
-    participant: indexed(address)
-    tokenId: indexed(uint256)
-    index: uint256
-    amount: uint256
-    totalDeposited: uint256
+event PasanakuLeft:
+    token_id: indexed(uint256)
+    account: indexed(address)
+    participant_count: uint256
 
 
-event Skipped:
-    destination: indexed(address)
-    tokenId: indexed(uint256)
-    index: uint256
-    amount: uint256
-
-
-event Ended:
-    tokenId: indexed(uint256)
-    lastUpdatedAt: uint256
-
-
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                           STRUCTS                            #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
-struct RotatingSavings:
-    participants: DynArray[address, PARTICIPANTS_COUNT]
+event PasanakuStarted:
+    token_id: indexed(uint256)
     asset: address
     amount: uint256
-    currentIndex: uint256
-    totalDeposited: uint256
-    tokenId: uint256
-    ended: bool
-    started: bool
+    started_at: uint256
 
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                           STORAGE                            #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+event PasanakuDeposited:
+    account: indexed(address)
+    token_id: indexed(uint256)
+    index: uint256
+    asset: address
+    amount: uint256
 
-# @dev Lobby / round state keyed by ERC-1155 token id.
-_rotating_savings: HashMap[uint256, RotatingSavings]
 
-# @dev Whether a participant has deposited for the current round (per token id).
-_deposited: HashMap[address, HashMap[uint256, bool]]
+event PasanakuTicked:
+    token_id: indexed(uint256)
+    tick_index: uint256
+    recipient: indexed(address)
+    asset: address
+    amount: uint256
+    updated_at: uint256
 
-# @dev User collateral not locked in a lobby, per asset.
-_free_collateral: HashMap[address, HashMap[address, uint256]]
 
-# @dev Collateral locked while in a lobby, per user and token id.
-_locked_collateral: HashMap[address, HashMap[uint256, uint256]]
+event PasanakuPenalties:
+    token_id: indexed(uint256)
+    tick_index: uint256
+    owner: indexed(address)
+    asset: address
+    amount: uint256
 
-# @dev Total collateral held by the protocol per asset.
-_collateral_reserves: HashMap[address, uint256]
 
-# @dev Whitelisted ERC-20 assets set at deploy.
-_supported_assets: immutable(address[SUPPORTED_ASSETS_COUNT])
+event PasanakuEnded:
+    token_id: indexed(uint256)
+    asset: indexed(address)
+    amount: uint256
+    ended_at: uint256
 
-# @dev Next token id; monotonically increases on `create`.
+
+event StaleTimeSet:
+    days: uint256
+
+
+struct Pasanaku:
+    token_id: uint256
+    asset: address
+    amount: uint256
+    participants: DynArray[address, _PARTICIPANT_COUNT]
+    index: uint256
+    created: uint256
+    started: uint256
+    updated: uint256
+    ended: uint256
+
+
+_PARTICIPANT_COUNT: constant(uint256) = 10
+_MISS_PENALTY_BPS: constant(uint256) = 5
+_DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
+_DAYS_3: constant(uint256) = 3 * 24 * 60 * 60
+_DAYS_7: constant(uint256) = 7 * 24 * 60 * 60
+_SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
+_SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
+_TOKEN_AMOUNT: constant(uint256) = 1
+_BPS_PRECISION: constant(uint256) = 10000
+
 _counter: uint256
+_pasanakus: HashMap[uint256, Pasanaku]
+_collateral: HashMap[address, HashMap[address, uint256]]
+_collateral_in_use: HashMap[address, HashMap[address, uint256]]
+_deposited_for_pasanaku: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]]  # nosplit
+_successful_obligated_deposits: HashMap[uint256, HashMap[address, uint256]]
+_slash_from_in_use: HashMap[uint256, HashMap[address, uint256]]
+_active_pasanaku_by_asset: HashMap[address, uint256]
+_stale_time: uint256
+_pool_escrow: HashMap[uint256, uint256]
+_pending_payout: HashMap[uint256, HashMap[uint256, uint256]]  # token_id -> round_idx -> amount # nosplit
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                          INITIALIZER                         #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
+
 @deploy
-def __init__(supported_assets: address[SUPPORTED_ASSETS_COUNT]):
-    ow.__init__()
-    erc1155.__init__("")
-    _supported_assets = supported_assets
-
-
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                     EXTERNAL FUNCTIONS                       #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
-@external
-def addCollateral(asset: address, amount: uint256):
-    assert amount > 0, "pasanaku: invalid amount"
-    assert asset in _supported_assets, "pasanaku: unsupported asset"
-
-    self._safeTransferFrom(msg.sender, self, asset, amount)
-    self._free_collateral[msg.sender][asset] += amount
-    self._collateral_reserves[asset] += amount
-
-    log CollateralAdded(account=msg.sender, asset=asset, amount=amount)
-
-
-@external
-def removeCollateral(asset: address, amount: uint256):
-    assert amount > 0, "pasanaku: invalid amount"
-    assert asset in _supported_assets, "pasanaku: unsupported asset"
-    assert (
-        self._free_collateral[msg.sender][asset] >= amount
-    ), "pasanaku: insufficient free collateral"
-    assert (
-        self._collateral_reserves[asset] >= amount
-    ), "pasanaku: insufficient collateral reserves"
-
-    self._safeTransfer(msg.sender, asset, amount)
-    self._free_collateral[msg.sender][asset] -= amount
-    self._collateral_reserves[asset] -= amount
-
-    log CollateralRemoved(account=msg.sender, asset=asset, amount=amount)
-
-
-@external
 @payable
-def create(asset: address, amount: uint256) -> uint256:
-    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
-    assert amount > 0, "pasanaku: invalid amount"
-    assert asset in _supported_assets, "pasanaku: unsupported asset"
+def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
+    _SUPPORTED_ASSETS = supported_assets
+    self._stale_time = _DAYS_7
+
+    ow.__init__()
+    ow2step.__init__()
+    erc1155.__init__("")
+
+
+@external
+@nonreentrant
+def add_collateral(asset: address, amount: uint256):
+    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
+    assert amount > 0  # dev: invalid amount
+
+    self._collateral[msg.sender][asset] += amount
+    log CollateralAdded(
+        account=msg.sender,
+        asset=asset,
+        amount=amount,
+    )
+    success: bool = extcall IERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
+    assert success  # dev: transferFrom failed
+
+
+@external
+@nonreentrant
+def deposit_to_pasanaku(amount: uint256, token_id: uint256):
+    assert amount > 0  # dev: invalid amount
+    assert token_id < self._counter  # dev: invalid token id
+
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    round_idx: uint256 = pasanaku.index
+
+    assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
+    assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
+    assert msg.sender in pasanaku.participants  # dev: account not in pasanaku # nosplit
+    assert msg.sender != pasanaku.participants[round_idx]  # dev: active participant cannot deposit # nosplit
+    assert not self._deposited_for_pasanaku[token_id][round_idx][msg.sender]  # dev: account already deposited # nosplit
+    assert amount == pasanaku.amount  # dev: invalid deposit amount
+
+    self._deposited_for_pasanaku[token_id][round_idx][msg.sender] = True
+    self._successful_obligated_deposits[token_id][msg.sender] += 1
+
+    success: bool = extcall IERC20(pasanaku.asset).transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
+    assert success  # dev: transferFrom failed
+    self._pool_escrow[token_id] += amount
+
+    log PasanakuDeposited(
+        account=msg.sender,
+        token_id=token_id,
+        index=round_idx,
+        asset=pasanaku.asset,
+        amount=amount,
+    )
+
+
+@external
+@nonreentrant
+def withdraw_collateral(asset: address, amount: uint256):
+    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
+    assert amount > 0  # dev: invalid amount
+
+    collateral: uint256 = self._collateral[msg.sender][asset]
+    collateral_in_use: uint256 = self._collateral_in_use[msg.sender][asset]
+    assert collateral > collateral_in_use  # dev: collateral in use
+    assert collateral - collateral_in_use >= amount  # dev: insufficient free collateral # nosplit
+
+    self._collateral[msg.sender][asset] -= amount
+
+    success: bool = extcall IERC20(asset).transfer(msg.sender, amount, default_return_value=True)  # nosplit
+    assert success  # dev: transfer failed
+
+    log CollateralWithdrawn(
+        account=msg.sender,
+        asset=asset,
+        amount=amount,
+        balance_after=self._collateral[msg.sender][asset],
+    )
+
+
+@external
+def create_pasanaku(asset: address, amount: uint256) -> uint256:
+    assert amount > 0  # dev: invalid amount
+    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
 
     token_id: uint256 = self._counter
     self._counter += 1
 
-    timestamp: uint256 = block.timestamp
-    self._rotating_savings[token_id] = RotatingSavings(
-        participants=empty(DynArray[address, PARTICIPANTS_COUNT]),
+    pasanaku: Pasanaku = empty(Pasanaku)
+    pasanaku.asset = asset
+    pasanaku.amount = amount
+    pasanaku.participants.append(msg.sender)
+    pasanaku.created = block.timestamp
+    self._pasanakus[token_id] = pasanaku
+    self._update_collateral_in_use(pasanaku)
+
+    log PasanakuCreated(
+        token_id=token_id,
         asset=asset,
-        amount=amount,
-        currentIndex=empty(uint256),
-        totalDeposited=empty(uint256),
-        tokenId=token_id,
-        ended=empty(bool),
-        started=empty(bool),
-    )
-    log LobbyCreated(
-        asset=asset,
-        tokenId=token_id,
         amount=amount,
     )
     return token_id
 
 
 @external
-@payable
-def join(token_id: uint256):
-    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
-    assert token_id <= self._counter, "pasanaku: invalid token id"
+@nonreentrant
+def join_pasanaku(token_id: uint256):
+    assert token_id < self._counter  # dev: invalid token id
 
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    assert not rs.started, "pasanaku: lobby already starded"
-    assert msg.sender not in rs.participants, "pasanaku: caller already joined"
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert msg.sender not in pasanaku.participants  # dev: participant already joined # nosplit
 
-    free_collateral: uint256 = self._free_collateral[msg.sender][rs.asset]
-    assert free_collateral >= rs.amount, "pasanaku: insufficient collateral"
+    pasanaku.participants.append(msg.sender)
+    self._update_collateral_in_use(pasanaku)
+    self._pasanakus[token_id] = pasanaku
 
-    amount_to_pay: uint256 = rs.amount * (PARTICIPANTS_COUNT - 1)
-    self._free_collateral[msg.sender][rs.asset] -= amount_to_pay
-    self._locked_collateral[msg.sender][token_id] += amount_to_pay
-    self._rotating_savings[token_id].participants.append(msg.sender)
+    log PasanakuJoined(
+        token_id=token_id,
+        account=msg.sender,
+        participant_count=len(pasanaku.participants),
+    )
 
-    log JoinedLobby(account=msg.sender, tokenId=token_id)
+    if len(pasanaku.participants) == _PARTICIPANT_COUNT:
+        self._start_pasanaku(token_id)
 
 
 @external
-def finalizeLobby(token_id: uint256):
-    assert token_id <= self._counter, "pasanaku: invalid token id"
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    assert not rs.started, "pasanaku: already started"
+@nonreentrant
+def leave_pasanaku(token_id: uint256):
+    assert token_id < self._counter  # dev: invalid token id
 
-    length: uint256 = len(rs.participants)
-    assert length == PARTICIPANTS_COUNT, "pasanaku: insufficient participants"
-    assert msg.sender in rs.participants, "pasanaku: caller not a participant"
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert pasanaku.started == empty(uint256)  # dev: pasanaku not started
+    assert (
+        pasanaku.created + self._stale_time <= block.timestamp
+    )  # dev: pasanaku is not stale
+    assert msg.sender in pasanaku.participants  # dev: participant not in pasanaku # nosplit
 
-    self._shuffleParticipants(token_id)
-    self._rotating_savings[token_id].started = True
+    self._unlock_participant_collateral_in_use(token_id, pasanaku, msg.sender)
+    pasanaku.participants = self._remove_from_array(
+        pasanaku.participants, msg.sender
+    )
+    self._pasanakus[token_id] = pasanaku
 
-    for participant: address in rs.participants:
-        self._mint(participant, token_id)
-
-    log LobbyFinalized(
-        tokenId=token_id,
+    log PasanakuLeft(
+        token_id=token_id,
+        account=msg.sender,
+        participant_count=len(pasanaku.participants),
     )
 
 
 @external
-@payable
-def deposit(token_id: uint256) -> bool:
-    assert token_id <= self._counter, "pasanaku: invalid token id"
-    assert self._canDeposit(msg.sender, token_id), "pasanaku: cannot deposit"
+@nonreentrant
+def tick(token_id: uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert pasanaku.started != empty(uint256)  # dev: pasanaku not started
+    assert pasanaku.ended == empty(uint256)  # dev: pasanaku ended
+    assert pasanaku.updated + _DAYS_40 <= block.timestamp  # dev: not enough time passed # nosplit
 
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    self._rotating_savings[token_id].totalDeposited += rs.amount
-    self._deposited[msg.sender][token_id] = True
-    self._safeTransferFrom(msg.sender, self, rs.asset, rs.amount)
+    round_idx: uint256 = pasanaku.index
+    recipient: address = pasanaku.participants[round_idx]
+    asset: address = pasanaku.asset
 
-    log Deposited(
-        participant=msg.sender,
-        tokenId=token_id,
-        index=rs.currentIndex,
-        amount=rs.amount,
-        totalDeposited=rs.totalDeposited + rs.amount,
+    recipient_payout: uint256 = empty(uint256)
+    penalties: uint256 = empty(uint256)
+    recipient_payout, penalties = self._settle_round(
+        token_id, round_idx, recipient
     )
-    return True
+
+    pasanaku.updated = block.timestamp
+
+    self._accrue_recipient_payout(token_id, round_idx, recipient_payout)
+    self._distribute_penalties(token_id, round_idx, penalties, pasanaku)
+
+    log PasanakuTicked(
+        token_id=token_id,
+        tick_index=round_idx,
+        recipient=recipient,
+        asset=asset,
+        amount=recipient_payout,
+        updated_at=block.timestamp,
+    )
+
+    pasanaku.index += 1
+
+    # Ending pasanaku if round index is the last one
+    if round_idx == _PARTICIPANT_COUNT - 1:
+        pasanaku.ended = block.timestamp
+        self._unlock_collateral_in_use(token_id, pasanaku)
+        log PasanakuEnded(
+            token_id=token_id,
+            asset=pasanaku.asset,
+            amount=pasanaku.amount,
+            ended_at=block.timestamp,
+        )
+        self._active_pasanaku_by_asset[asset] -= 1
+
+    self._pasanakus[token_id] = pasanaku
 
 
 @external
-@payable
-def claim(token_id: uint256) -> bool:
-    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
-    assert token_id <= self._counter, "pasanaku: invalid token id"
-    assert self._canClaim(msg.sender, token_id), "pasanaku: cannot claim"
-
-    self._applyRound(token_id, True)
-    return True
-
-
-@external
-@payable
-def skip(token_id: uint256) -> bool:
-    assert msg.value >= PROTOCOL_FEE, "pasanaku: insufficient fee"
-    assert token_id <= self._counter, "pasanaku: invalid token id"
-
-    self._applyRound(token_id, False)
-    return True
-
-
-@external
-def collectProtocolFees():
-    send(ow.owner, self.balance)
-
-
-@external
-def skim(asset: address, amount: uint256):
-    if asset in _supported_assets:
-        balance: uint256 = staticcall IERC20(asset).balanceOf(self)
-        reserves: uint256 = self._collateral_reserves[asset]
-        diff: uint256 = balance - reserves
-        assert diff >= amount, "pasanaku: insufficient difference"
-
-    self._safeTransfer(ow.owner, asset, amount)
+def set_stale_time(days: uint256):
+    ow._check_owner()
+    assert days >= _DAYS_3  # dev: pasanaku stale time out of range
+    assert days <= _DAYS_7  # dev: pasanaku stale time out of range
+    self._stale_time = days
+    log StaleTimeSet(days=days)
 
 
 @external
@@ -350,240 +414,307 @@ def setApprovalForAll(operator: address, approved: bool):
     raise "pasanaku: pasanakus are soul-bounded tokens"
 
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                   EXTERNAL VIEW FUNCTIONS                    #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
-@view
 @external
-def uri(id: uint256) -> String[512]:
-    rs: RotatingSavings = self._rotating_savings[id]
-    if rs.ended:
-        return "https://pasanaku.fun/pasanaku/ended"
-    elif rs.started:
-        return "https://pasanaku.fun/pasanaku/started"
+@view
+def uri(token_id: uint256) -> String[512]:
+    if token_id >= self._counter:
+        # pasanaku: not created
+        return "ipfs://QmbcELYwEiVu6n6nJhHmdqTRPfWD6eNHiXZhixKvhjAznF"
+
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    if pasanaku.ended != empty(uint256):
+        # pasanaku: ended
+        return "ipfs://QmYA1EK6dEujhcdZMWbjk1gVoHyqEYDZoptHMzL8ppTfWH"
+
+    elif pasanaku.started != empty(uint256):
+        # pasanaku: ongoing
+        return "ipfs://QmYvMoHxQSPLbCaofRHEyskb7U5UEyq31gwH9pyM1WSEc4"
+
+    elif pasanaku.started == empty(uint256) and pasanaku.created + self._stale_time <= block.timestamp: # nosplit
+        # pasanaku: stale
+        return "ipfs://QmcGBA3PSwZxq6RQQsWbUe4NNtbLCbaxuVpx1Jnv5qRF98"
+
     else:
-        return "https://pasanaku.fun/pasanaku/active"
+        # pasanaku: pending
+        return "ipfs://QmZ9PeXU9sUbax7SPAbyoBZawNqCrdgtEYXdipzMYi4Rsp"
 
 
-@view
 @external
-def collateralReserves(asset: address) -> uint256:
-    return self._collateral_reserves[asset]
-
-
 @view
-@external
-def freeCollateral(account: address, asset: address) -> uint256:
-    return self._free_collateral[account][asset]
-
-
-@view
-@external
-def lockedCollateral(account: address, token_id: uint256) -> uint256:
-    return self._locked_collateral[account][token_id]
-
-
-@view
-@external
-def isApprovedForAll(arg0: address, arg1: address) -> bool:
+def isApprovedForAll(owner: address, operator: address) -> bool:
     return False
 
 
-@view
-@external
-def amountToPay(token_id: uint256) -> uint256:
-    return self._amountToPay(token_id)
-
-
 @external
 @view
-def protocolFee() -> uint256:
-    return PROTOCOL_FEE
+def pasanaku(pasanaku_id: uint256) -> Pasanaku:
+    return self._pasanakus[pasanaku_id]
 
 
 @external
 @view
-def supportedAssets() -> address[SUPPORTED_ASSETS_COUNT]:
-    return _supported_assets
+def collateral_in_use(participant: address, asset: address) -> uint256:
+    return self._collateral_in_use[participant][asset]
 
 
 @external
 @view
-def rotatingSavings(token_id: uint256) -> RotatingSavings:
-    return self._rotating_savings[token_id]
+def deposited_for_pasanaku(
+    pasanaku_id: uint256, index: uint256, participant: address
+) -> bool:
+    return self._deposited_for_pasanaku[pasanaku_id][index][participant]  # nosplit
 
 
 @external
 @view
-def canDeposit(participant: address, token_id: uint256) -> bool:
-    return self._canDeposit(participant, token_id)
+def successful_obligated_deposits(
+    token_id: uint256, participant: address
+) -> uint256:
+    return self._successful_obligated_deposits[token_id][participant]
 
 
 @external
 @view
-def canClaim(participant: address, token_id: uint256) -> bool:
-    return self._canClaim(participant, token_id)
+def active_pasanaku_for_asset(asset: address) -> uint256:
+    return self._active_pasanaku_by_asset[asset]
 
 
 @external
 @view
-def canSkip(participant: address, token_id: uint256) -> bool:
-    return self._canClaim(participant, token_id)
+def participant_count() -> uint256:
+    return _PARTICIPANT_COUNT
 
 
-#*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*#
-#                      INTERNAL FUNCTIONS                      #
-#*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*#
-
+@external
 @view
+def supported_assets() -> address[_SUPPORTED_ASSETS_COUNT]:
+    return _SUPPORTED_ASSETS
+
+
+@external
+@view
+def collateral(participant: address, asset: address) -> uint256:
+    return self._collateral[participant][asset]
+
+
+@external
+@view
+def balanceOf(account: address, id: uint256) -> uint256:
+    return erc1155.balanceOf[account][id]
+
+
+@external
+@view
+def pool_escrow(token_id: uint256) -> uint256:
+    return self._pool_escrow[token_id]
+
+
+@external
+@view
+def pending_payout(token_id: uint256, round_idx: uint256) -> uint256:
+    return self._pending_payout[token_id][round_idx]
+
+
+@external
+@nonreentrant
+def claim_round_payout(token_id: uint256, round_idx: uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    recipient: address = pasanaku.participants[round_idx]
+    assert msg.sender == recipient
+    amount: uint256 = self._pending_payout[token_id][round_idx]
+    assert amount > 0
+    self._pending_payout[token_id][round_idx] = 0
+    success: bool = extcall IERC20(pasanaku.asset).transfer(
+        recipient, amount, default_return_value=True
+    )
+    assert success
+
+
+@external
+@view
+def free_collateral(participant: address, asset: address) -> uint256:
+    collateral: uint256 = self._collateral[participant][asset]
+    in_use: uint256 = self._collateral_in_use[participant][asset]
+    if collateral <= in_use:
+        return 0
+
+    return collateral - in_use
+
+
+@external
+@pure
+def pledge(amount: uint256) -> uint256:
+    return self._pledge(amount)
+
+
 @internal
-def _amountToPay(token_id: uint256) -> uint256:
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    return rs.amount * (len(rs.participants) - 1)
+def _update_collateral_in_use(pasanaku: Pasanaku):
+    lock_amt: uint256 = self._pledge(pasanaku.amount)
+    assert self._collateral[msg.sender][pasanaku.asset] >= lock_amt  # dev: insufficient collateral # nosplit
+
+    collateral: uint256 = self._collateral[msg.sender][pasanaku.asset]
+    in_use: uint256 = self._collateral_in_use[msg.sender][pasanaku.asset]
+    assert collateral - in_use >= lock_amt  # dev: collateral already pledged # nosplit
+    self._collateral_in_use[msg.sender][pasanaku.asset] += lock_amt
 
 
 @internal
-@view
-def _canDeposit(participant: address, token_id: uint256) -> bool:
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    return (
-        not rs.ended
-        and rs.started
-        and participant in rs.participants
-        and participant != rs.participants[rs.currentIndex]
-        and not self._deposited[participant][token_id]
+def _start_pasanaku(token_id: uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    assert pasanaku.asset != empty(address)  # dev: pasanaku not created
+
+    pasanaku.token_id = token_id
+    pasanaku.started = block.timestamp
+    pasanaku.updated = block.timestamp
+
+    self._pasanakus[token_id] = pasanaku
+    self._active_pasanaku_by_asset[pasanaku.asset] += 1
+
+    for p: address in pasanaku.participants:
+        self._mint_membership_token(p, token_id)
+
+    log PasanakuStarted(
+        token_id=token_id,
+        asset=pasanaku.asset,
+        amount=pasanaku.amount,
+        started_at=block.timestamp,
     )
 
 
 @internal
-@view
-def _canClaim(participant: address, token_id: uint256) -> bool:
-    rs: RotatingSavings = self._rotating_savings[token_id]
-    return (
-        not rs.ended
-        and rs.started
-        and participant in rs.participants
-        and participant == rs.participants[rs.currentIndex]
-    )
+def _mint_membership_token(owner: address, token_id: uint256):
+    assert owner != empty(address)
+    amount: uint256 = _TOKEN_AMOUNT
 
-
-@internal
-def _applyRound(token_id: uint256, is_claim: bool):
-    rs: RotatingSavings = self._rotating_savings[token_id]
-
-    collateral_reserve: uint256 = self._collateral_reserves[rs.asset]
-    assert collateral_reserve >= rs.amount
-
-    total_deposited: uint256 = rs.totalDeposited
-    amount_to_release: uint256 = rs.amount * (len(rs.participants) - 1)
-    assert total_deposited >= amount_to_release
-
-    # Transfer collateral
-    destination: address = rs.participants[rs.currentIndex]
-    self._safeTransfer(destination, rs.asset, total_deposited)
-
-    # Update state
-    ended: bool = rs.currentIndex + 1 >= len(rs.participants)
-    self._rotating_savings[token_id] = RotatingSavings(
-        participants=rs.participants,
-        asset=rs.asset,
-        amount=rs.amount,
-        currentIndex=rs.currentIndex + 1,
-        totalDeposited=0,
-        tokenId=rs.tokenId,
-        ended=ended,
-        started=rs.started,
-    )
-
-    if ended:
-        for participant: address in rs.participants:
-            self._locked_collateral[participant][
-                rs.tokenId
-            ] -= amount_to_release
-            self._free_collateral[participant][rs.asset] += amount_to_release
-        log Ended(tokenId=rs.tokenId, lastUpdatedAt=block.timestamp)
-
-    if is_claim:
-        log Claimed(
-            participant=destination,
-            tokenId=rs.tokenId,
-            index=rs.currentIndex,
-            amount=rs.amount,
-            totalDeposited=rs.totalDeposited,
-        )
-    else:
-        log Skipped(
-            destination=destination,
-            tokenId=rs.tokenId,
-            index=rs.currentIndex,
-            amount=rs.amount,
-        )
-
-
-@internal
-def _shuffleParticipants(token_id: uint256):
-    word: bytes32 = keccak256(
-        abi_encode(token_id, block.prevrandao, block.timestamp)
-    )
-    for i: uint256 in range(PARTICIPANTS_COUNT - 1):
-        word = keccak256(concat(word, convert(i, bytes32)))
-        span: uint256 = PARTICIPANTS_COUNT - i
-        offset: uint256 = convert(word, uint256) % span
-        j: uint256 = i + offset
-        if j != i:
-            tmp: address = self._rotating_savings[token_id].participants[i]
-            self._rotating_savings[token_id].participants[i] = (
-                self._rotating_savings[token_id].participants[j]
-            )
-            self._rotating_savings[token_id].participants[j] = tmp
-
-
-@internal
-def _safeTransferFrom(
-    _from: address, _to: address, asset: address, amount: uint256
-):
-    initial: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    extcall IERC20(asset).transferFrom(_from, _to, amount)
-    ending: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    assert initial + amount == ending, "pasanku: transferFrom failed"
-
-
-@internal
-def _safeTransfer(_to: address, asset: address, amount: uint256):
-    initial: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    extcall IERC20(asset).transfer(_to, amount)
-    ending: uint256 = staticcall IERC20(asset).balanceOf(_to)
-    assert initial + amount == ending, "pasanku: transfer failed"
-
-
-@internal
-def _mint(owner: address, id: uint256):
-    assert owner != empty(address), "pasanaku: mint to the zero address"
-
-    erc1155._before_token_transfer(
-        empty(address),
-        owner,
-        erc1155._as_singleton_array(id),
-        erc1155._as_singleton_array(MINT_TOKEN_AMOUNT),
-        b"",
-    )
-
-    erc1155.balanceOf[owner][id] = unsafe_add(
-        erc1155.balanceOf[owner][id], MINT_TOKEN_AMOUNT
+    erc1155.balanceOf[owner][token_id] = unsafe_add(
+        erc1155.balanceOf[owner][token_id], amount
     )
     log IERC1155.TransferSingle(
         _operator=msg.sender,
         _from=empty(address),
         _to=owner,
-        _id=id,
-        _value=MINT_TOKEN_AMOUNT,
+        _id=token_id,
+        _value=amount,
     )
 
-    erc1155._after_token_transfer(
-        empty(address),
-        owner,
-        erc1155._as_singleton_array(id),
-        erc1155._as_singleton_array(MINT_TOKEN_AMOUNT),
-        b"",
+
+@internal
+def _accrue_recipient_payout(
+    token_id: uint256,
+    round_idx: uint256,
+    payout: uint256,
+):
+    if payout == 0:
+        return
+    assert self._pool_escrow[token_id] >= payout
+    self._pool_escrow[token_id] -= payout
+    self._pending_payout[token_id][round_idx] += payout
+
+
+@internal
+def _unlock_collateral_in_use(token_id: uint256, pasanaku: Pasanaku):
+    assert pasanaku.ended != empty(uint256)  # dev: pasanaku not ended
+    for participant: address in pasanaku.participants:
+        self._unlock_participant_collateral_in_use(
+            token_id, pasanaku, participant
+        )
+
+
+@internal
+def _unlock_participant_collateral_in_use(
+    token_id: uint256,
+    pasanaku: Pasanaku,
+    participant: address,
+):
+    pledge_amt: uint256 = self._pledge(pasanaku.amount)
+    slashed: uint256 = self._slash_from_in_use[token_id][participant]
+    self._collateral_in_use[participant][pasanaku.asset] -= pledge_amt - slashed
+
+
+@internal
+def _settle_round(
+    token_id: uint256, round_idx: uint256, recipient: address
+) -> (uint256, uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    asset: address = pasanaku.asset
+    amt: uint256 = pasanaku.amount
+    penalty_per: uint256 = amt * _MISS_PENALTY_BPS // _BPS_PRECISION
+
+    recipient_payout: uint256 = 0
+    penalties: uint256 = 0
+
+    for p: address in pasanaku.participants:
+        if p == recipient:
+            continue
+        elif self._deposited_for_pasanaku[token_id][round_idx][p]:
+            recipient_payout += amt
+        else:
+            slash_total: uint256 = amt + penalty_per
+            assert self._collateral[p][asset] >= slash_total  # dev: insufficient collateral for slash # nosplit
+            self._collateral[p][asset] -= slash_total
+            self._collateral_in_use[p][asset] -= slash_total
+            self._slash_from_in_use[token_id][p] += slash_total
+            self._pool_escrow[token_id] += slash_total
+            recipient_payout += amt
+            penalties += penalty_per
+    return recipient_payout, penalties
+
+
+@internal
+def _distribute_penalties(
+    token_id: uint256,
+    round_idx: uint256,
+    penalty_pool: uint256,
+    pasanaku: Pasanaku,
+):
+    if penalty_pool == 0:
+        return
+
+    asset: address = pasanaku.asset
+    fee_sink: address = ow.owner
+    assert self._pool_escrow[token_id] >= penalty_pool
+    self._pool_escrow[token_id] -= penalty_pool
+    success: bool = extcall IERC20(asset).transfer(
+        fee_sink, penalty_pool, default_return_value=True
     )
+    assert success  # dev: penalty transfer failed
+    log PasanakuPenalties(
+        token_id=token_id,
+        tick_index=round_idx,
+        owner=fee_sink,
+        asset=asset,
+        amount=penalty_pool,
+    )
+
+
+@internal
+@pure
+def _pledge(amount: uint256) -> uint256:
+    total_amount: uint256 = amount * _PARTICIPANT_COUNT
+    total_penalties: uint256 = (
+        total_amount * _MISS_PENALTY_BPS // _BPS_PRECISION
+    )
+    return total_amount + total_penalties
+
+
+@internal
+@pure
+def _remove_from_array(
+    participants: DynArray[address, _PARTICIPANT_COUNT],
+    target: address,
+) -> DynArray[address, _PARTICIPANT_COUNT]:
+    length: uint256 = len(participants)
+    assert length > 0  # dev: empty participants
+
+    found: bool = False
+    last_idx: uint256 = length - 1
+    temp: address = participants[last_idx]
+    for i: uint256 in range(length, bound=_PARTICIPANT_COUNT):
+        if participants[i] == target:
+            participants[i] = temp
+            found = True
+            break
+
+    assert found  # dev: participant not in pasanaku
+    participants.pop()
+    return participants

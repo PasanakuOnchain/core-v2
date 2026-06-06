@@ -1,324 +1,752 @@
 import boa
-from hypothesis import HealthCheck, given, settings
-from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
-import hypothesis.strategies as st
-from src import pasanaku
-from src._mocks import erc20_mock
-from tests.helpers import mint_token
 
-USERS_COUNT = 3
-MAX_AMOUNT = 10**12
-
-
-def test_protocol_fee(pasanaku_contract):
-    assert pasanaku_contract.protocolFee() == int(0.000075 * 10**18)
-
-
-def test_deposit_collateral(pasanaku_contract, alice, owner, usdc_contract):
-    amount = mint_token(owner, usdc_contract, alice, 10_000)
-
-    assert usdc_contract.balanceOf(alice) == amount
-
-    with boa.env.prank(alice):
-        usdc_contract.approve(pasanaku_contract.address, amount)
-        pasanaku_contract.addCollateral(usdc_contract.address, amount)
-
-    assert pasanaku_contract.collateralReserves(usdc_contract.address) == amount
-    assert pasanaku_contract.freeCollateral(alice, usdc_contract.address) == amount
-    assert pasanaku_contract.lockedCollateral(alice, 0) == 0
-
-
-def test_deposit_collateral_and_withdraw(
-    pasanaku_contract, alice, owner, usdc_contract
-):
-    amount = mint_token(owner, usdc_contract, alice, 10_000)
-    assert usdc_contract.balanceOf(alice) == amount
-
-    with boa.env.prank(alice):
-        usdc_contract.approve(pasanaku_contract.address, amount)
-        pasanaku_contract.addCollateral(usdc_contract.address, amount)
-
-    assert usdc_contract.balanceOf(pasanaku_contract.address) == amount
-
-    with boa.env.prank(alice):
-        pasanaku_contract.removeCollateral(usdc_contract.address, amount)
-        assert pasanaku_contract.collateralReserves(usdc_contract.address) == 0
-
-    assert pasanaku_contract.collateralReserves(usdc_contract.address) == 0
-    assert pasanaku_contract.freeCollateral(alice, usdc_contract.address) == 0
-    assert usdc_contract.balanceOf(alice) == amount
-
-
-def test_deposit_multiple_users(pasanaku_contract, tokens, users, owner):
-    for token in tokens:
-        collateral_reserves = 0
-        for user in users:
-            amount = mint_token(owner, token, user, 10_000)
-            assert token.balanceOf(user) == amount
-
-            with boa.env.prank(user):
-                token.approve(pasanaku_contract.address, amount)
-                pasanaku_contract.addCollateral(token.address, amount)
-                collateral_reserves += amount
-
-        assert (
-            pasanaku_contract.collateralReserves(token.address) == collateral_reserves
-        )
-        assert pasanaku_contract.freeCollateral(user, token.address) == amount
-        assert pasanaku_contract.lockedCollateral(user, 0) == 0
-
-
-def test_deposit_multiple_users_and_withdraw(pasanaku_contract, tokens, users, owner):
-    for token in tokens:
-        for user in users:
-            amount = mint_token(owner, token, user, 10_000)
-            assert token.balanceOf(user) == amount
-
-            with boa.env.prank(user):
-                token.approve(pasanaku_contract.address, amount)
-                pasanaku_contract.addCollateral(token.address, amount)
-
-    for token in tokens:
-        for user in users:
-            amount = mint_token(owner, token, user, 10_000)
-            with boa.env.prank(user):
-                pasanaku_contract.removeCollateral(token.address, amount)
-
-    assert pasanaku_contract.collateralReserves(token.address) == 0
-    assert pasanaku_contract.freeCollateral(user, token.address) == 0
-    assert pasanaku_contract.lockedCollateral(user, 0) == 0
-
-
-def test_add_collateral_zero_amount_reverts(pasanaku_contract, alice, usdc_contract):
-    with boa.reverts("pasanaku: invalid amount"):
-        with boa.env.prank(alice):
-            pasanaku_contract.addCollateral(usdc_contract.address, 0)
-
-
-def test_add_collateral_unsupported_asset_reverts(pasanaku_contract, alice):
-    fake = boa.env.generate_address()
-    with boa.reverts("pasanaku: unsupported asset"):
-        with boa.env.prank(alice):
-            pasanaku_contract.addCollateral(fake, 100)
-
-
-def test_remove_collateral_zero_amount_reverts(pasanaku_contract, alice, usdc_contract):
-    with boa.reverts("pasanaku: invalid amount"):
-        with boa.env.prank(alice):
-            pasanaku_contract.removeCollateral(usdc_contract.address, 0)
-
-
-def test_remove_collateral_unsupported_asset_reverts(pasanaku_contract, alice):
-    fake = boa.env.generate_address()
-    with boa.reverts("pasanaku: unsupported asset"):
-        with boa.env.prank(alice):
-            pasanaku_contract.removeCollateral(fake, 100)
-
-
-def test_remove_collateral_exceeds_free_reverts(
-    pasanaku_contract, alice, owner, usdc_contract
-):
-    amount = mint_token(owner, usdc_contract, alice, 100)
-    with boa.env.prank(alice):
-        usdc_contract.approve(pasanaku_contract.address, amount)
-        pasanaku_contract.addCollateral(usdc_contract.address, amount)
-
-    with boa.reverts("pasanaku: insufficient free collateral"):
-        with boa.env.prank(alice):
-            pasanaku_contract.removeCollateral(usdc_contract.address, amount + 1)
-
-
-@given(amount=st.integers(min_value=1, max_value=10**12))
-@settings(
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
+from tests.conftest import (
+    DAYS_3,
+    DAYS_40,
+    PARTICIPANT_COUNT,
+    PASANAKU_AMOUNT_RAW,
+    URI_ENDED,
+    create_and_join_all,
+    fund_collateral_for_users,
+    penalty_per_amount,
+    pledge,
+    tick_and_claim,
+    token_id_from_last_started,
 )
-def test_fuzz_add_collateral_any_amount(
-    pasanaku_contract, alice, owner, usdc_contract, amount
+from tests.mocks import noop_contract
+
+
+def test_deploy_supported_assets_and_participant_count(
+    pasanaku_contract, usdc_contract, usdt_contract, weth_contract, dai_contract
 ):
-    with boa.env.anchor():
-        with boa.env.prank(owner):
-            usdc_contract.mint(alice, amount)
-        with boa.env.prank(alice):
-            usdc_contract.approve(pasanaku_contract.address, amount)
-            pasanaku_contract.addCollateral(usdc_contract.address, amount)
-
-        assert pasanaku_contract.freeCollateral(alice, usdc_contract.address) == amount
-        assert pasanaku_contract.collateralReserves(usdc_contract.address) == amount
-        assert usdc_contract.balanceOf(pasanaku_contract.address) == amount
+    assets = pasanaku_contract.supported_assets()
+    assert assets[0] == usdc_contract.address
+    assert assets[1] == usdt_contract.address
+    assert assets[2] == weth_contract.address
+    assert assets[3] == dai_contract.address
+    assert pasanaku_contract.participant_count() == PARTICIPANT_COUNT
 
 
-@given(amount=st.integers(min_value=1, max_value=10**12))
-@settings(
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-def test_fuzz_add_and_remove_collateral_roundtrip(
-    pasanaku_contract, alice, owner, usdc_contract, amount
+def test_create_first_pasanaku_returns_zero(
+    pasanaku_contract, users, owner, usdc_contract
 ):
-    with boa.env.anchor():
-        with boa.env.prank(owner):
-            usdc_contract.mint(alice, amount)
-
-        balance_before = usdc_contract.balanceOf(alice)
-
-        with boa.env.prank(alice):
-            usdc_contract.approve(pasanaku_contract.address, amount)
-            pasanaku_contract.addCollateral(usdc_contract.address, amount)
-            pasanaku_contract.removeCollateral(usdc_contract.address, amount)
-
-        assert usdc_contract.balanceOf(alice) == balance_before
-        assert pasanaku_contract.freeCollateral(alice, usdc_contract.address) == 0
-        assert pasanaku_contract.collateralReserves(usdc_contract.address) == 0
-
-
-@given(
-    total=st.integers(min_value=2, max_value=10**12),
-    fraction=st.floats(min_value=0.01, max_value=0.99),
-)
-@settings(
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-def test_fuzz_partial_remove_collateral(
-    pasanaku_contract, alice, owner, usdc_contract, total, fraction
-):
-    partial = max(1, int(total * fraction))
-    if partial >= total:
-        return
-
-    with boa.env.anchor():
-        with boa.env.prank(owner):
-            usdc_contract.mint(alice, total)
-        with boa.env.prank(alice):
-            usdc_contract.approve(pasanaku_contract.address, total)
-            pasanaku_contract.addCollateral(usdc_contract.address, total)
-            pasanaku_contract.removeCollateral(usdc_contract.address, partial)
-
-        remaining = total - partial
-        assert (
-            pasanaku_contract.freeCollateral(alice, usdc_contract.address) == remaining
-        )
-        assert pasanaku_contract.collateralReserves(usdc_contract.address) == remaining
-
-
-@given(amount=st.integers(min_value=1, max_value=10**12))
-@settings(
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-def test_fuzz_create_lobby_any_amount(
-    pasanaku_contract, owner, usdc_contract, protocol_fee, amount
-):
-    with boa.env.anchor():
-        with boa.env.prank(owner):
-            token_id = pasanaku_contract.create(
-                usdc_contract.address, amount, value=protocol_fee
-            )
-        rs = pasanaku_contract.rotatingSavings(token_id)
-        assert rs[2] == amount
-        assert rs[7] is False
-
-
-class CollateralStateMachine(RuleBasedStateMachine):
-    def __init__(self):
-        super().__init__()
-        self.shadow = {}
-        self.user_addrs = []
-        self.token_contracts = []
-        self.token_addrs = []
-        self.contract = None
-        self.deployer = None
-
-    @initialize()
-    def setup(self):
-        self.deployer = boa.env.generate_address()
-        boa.env.set_balance(self.deployer, 10**18)
-
-        self.user_addrs = []
-        for _ in range(USERS_COUNT):
-            addr = boa.env.generate_address()
-            boa.env.set_balance(addr, 10**18)
-            self.user_addrs.append(addr)
-
-        with boa.env.prank(self.deployer):
-            t1 = erc20_mock.deploy("T1", "T1", 6, 0, "t1", "1")
-            t2 = erc20_mock.deploy("T2", "T2", 6, 0, "t2", "1")
-            t3 = erc20_mock.deploy("T3", "T3", 6, 0, "t3", "1")
-            self.token_contracts = [t1, t2, t3]
-            self.token_addrs = [t1.address, t2.address, t3.address]
-            self.contract = pasanaku.deploy(self.token_addrs)
-
-        self.shadow = {}
-        for user in self.user_addrs:
-            self.shadow[user] = {}
-            for addr in self.token_addrs:
-                self.shadow[user][addr] = 0
-
-    @rule(
-        user_idx=st.integers(min_value=0, max_value=USERS_COUNT - 1),
-        token_idx=st.integers(min_value=0, max_value=2),
-        amount=st.integers(min_value=1, max_value=MAX_AMOUNT),
+    amount_raw = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
     )
-    def add_collateral(self, user_idx, token_idx, amount):
-        user = self.user_addrs[user_idx]
-        token = self.token_contracts[token_idx]
+    with boa.env.prank(users[0]):
+        idx = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+    assert idx == 0
 
-        with boa.env.prank(self.deployer):
-            token.mint(user, amount)
-        with boa.env.prank(user):
-            token.approve(self.contract.address, amount)
-            self.contract.addCollateral(token.address, amount)
 
-        self.shadow[user][token.address] += amount
-
-    @rule(
-        user_idx=st.integers(min_value=0, max_value=USERS_COUNT - 1),
-        token_idx=st.integers(min_value=0, max_value=2),
-        fraction=st.floats(min_value=0.01, max_value=1.0),
+def test_add_collateral(pasanaku_contract, owner, usdc_contract, users):
+    collateral_amount = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, users, collateral_amount, raw=True
     )
-    def remove_collateral(self, user_idx, token_idx, fraction):
-        user = self.user_addrs[user_idx]
-        token = self.token_contracts[token_idx]
-        balance = self.shadow[user][token.address]
-        if balance == 0:
-            return
+    for user in users:
+        onchain_collateral = pasanaku_contract.collateral(user, usdc_contract.address)
+        assert onchain_collateral == collateral_amount
 
-        amount = max(1, int(balance * fraction))
-        if amount > balance:
-            amount = balance
 
+def test_join_insufficient_collateral_reverts(
+    pasanaku_contract, owner, usdc_contract, users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    need = pledge(amount_raw)
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
+    )
+    with boa.env.prank(users[0]):
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
+
+    u = users[1]
+    with boa.env.prank(owner):
+        usdc_contract.mint(u, need - 1)
+    with boa.env.prank(u):
+        usdc_contract.approve(pasanaku_contract.address, need - 1)
+        pasanaku_contract.add_collateral(usdc_contract.address, need - 1)
+    with boa.reverts(dev="insufficient collateral # nosplit"):
+        with boa.env.prank(u):
+            pasanaku_contract.join_pasanaku(pending_idx)
+
+
+def test_join_duplicate_reverts(pasanaku_contract, owner, usdc_contract, users):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[:2],
+        amount_raw,
+    )
+    pending_idx = 0
+    with boa.reverts(dev="participant already joined # nosplit"):
+        with boa.env.prank(users[0]):
+            pasanaku_contract.join_pasanaku(pending_idx)
+
+
+def test_full_join_starts_pasanaku(pasanaku_contract, owner, usdc_contract, users):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users,
+        amount_raw,
+    )
+    tid = token_id_from_last_started(pasanaku_contract)
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.started != 0
+    assert st.ended == 0
+
+
+def test_collateral_in_use_after_join(pasanaku_contract, owner, usdc_contract, users):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    need = pledge(amount_raw)
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
+    )
+    with boa.env.prank(users[0]):
+        pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+    assert pasanaku_contract.collateral_in_use(users[0], usdc_contract.address) == need
+    with boa.env.prank(users[1]):
+        pasanaku_contract.join_pasanaku(0)
+    assert pasanaku_contract.collateral_in_use(users[1], usdc_contract.address) == need
+
+
+def test_leave_pasanaku_before_stale_reverts(
+    pasanaku_contract, owner, usdc_contract, users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
+    )
+    with boa.env.prank(users[0]):
+        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+    with boa.env.prank(users[1]):
+        pasanaku_contract.join_pasanaku(token_id)
+
+    with boa.reverts(dev="pasanaku is not stale"):
+        with boa.env.prank(users[1]):
+            pasanaku_contract.leave_pasanaku(token_id)
+
+
+def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral(
+    pasanaku_contract, owner, usdc_contract, users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    locked = pledge(amount_raw)
+    users = users[:3]
+    leaver = users[1]
+    remaining = [users[0], users[2]]
+
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, users, amount_raw
+    )
+    with boa.env.prank(users[0]):
+        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+    for user in users[1:]:
         with boa.env.prank(user):
-            self.contract.removeCollateral(token.address, amount)
+            pasanaku_contract.join_pasanaku(token_id)
 
-        self.shadow[user][token.address] -= amount
+    boa.env.time_travel(seconds=DAYS_3)
+    with boa.env.prank(leaver):
+        pasanaku_contract.leave_pasanaku(token_id)
 
-    @invariant()
-    def reserves_match_shadow_sum(self):
-        for token_addr in self.token_addrs:
-            expected = sum(self.shadow[u][token_addr] for u in self.user_addrs)
-            assert self.contract.collateralReserves(token_addr) == expected
-
-    @invariant()
-    def free_collateral_matches_shadow(self):
-        for user in self.user_addrs:
-            for token_addr in self.token_addrs:
-                assert (
-                    self.contract.freeCollateral(user, token_addr)
-                    == self.shadow[user][token_addr]
-                )
-
-    @invariant()
-    def erc20_solvency(self):
-        for i, token_addr in enumerate(self.token_addrs):
-            token = self.token_contracts[i]
-            assert token.balanceOf(
-                self.contract.address
-            ) >= self.contract.collateralReserves(token_addr)
+    st = pasanaku_contract.pasanaku(token_id)
+    assert len(st.participants) == 2
+    assert leaver not in st.participants
+    assert set(st.participants) == set(remaining)
+    assert pasanaku_contract.collateral_in_use(leaver, usdc_contract.address) == 0
+    assert pasanaku_contract.free_collateral(leaver, usdc_contract.address) == locked
+    for user in remaining:
+        assert (
+            pasanaku_contract.collateral_in_use(user, usdc_contract.address) == locked
+        )
 
 
-TestCollateralInvariants = CollateralStateMachine.TestCase
+def test_leave_started_pasanaku_reverts(pasanaku_contract, started_pasanaku):
+    tid = started_pasanaku["token_id"]
+    leaver = started_pasanaku["users"][1]
+
+    boa.env.time_travel(seconds=DAYS_40)
+    with boa.reverts(dev="pasanaku not started"):
+        with boa.env.prank(leaver):
+            pasanaku_contract.leave_pasanaku(tid)
+
+
+def test_withdraw_collateral_blocked_when_all_locked(
+    pasanaku_contract, owner, usdc_contract, users
+):
+    amount_raw = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
+    )
+    with boa.env.prank(users[0]):
+        pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+    with boa.reverts(dev="collateral in use"):
+        with boa.env.prank(users[0]):
+            pasanaku_contract.withdraw_collateral(usdc_contract.address, 1)
+
+
+def test_tick_first_pays_principal_only(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    owner_pre = usdc_contract.balanceOf(owner)
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    recipient = users[0]
+    pre_recipient = usdc_contract.balanceOf(recipient)
+    tick_and_claim(pasanaku_contract, tid, 0, users)
+
+    expected = amount_raw * (PARTICIPANT_COUNT - 1)
+    assert usdc_contract.balanceOf(recipient) == pre_recipient + expected
+    assert usdc_contract.balanceOf(owner) == owner_pre
+
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.index == 1
+
+
+def test_recipient_cannot_deposit(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    recipient = started_pasanaku["users"][0]
+    with boa.env.prank(owner):
+        usdc_contract.mint(recipient, amount_raw)
+    with boa.env.prank(recipient):
+        usdc_contract.approve(pasanaku_contract.address, amount_raw)
+        with boa.reverts(dev="active participant cannot deposit # nosplit"):
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+
+def test_middle_tick(pasanaku_contract, owner, usdc_contract, users, started_pasanaku):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for round_idx in range(5):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(tid)
+
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.index == 5
+
+
+def test_last_tick_ends_and_uri(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for round_idx in range(PARTICIPANT_COUNT):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(tid)
+
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.ended != 0
+    assert st.index == PARTICIPANT_COUNT
+    assert pasanaku_contract.uri(tid) == URI_ENDED
+
+
+def test_non_payer_slash_penalty_to_owner_not_eligibles(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    """Single defaulter: full penalty_pool goes to owner(); eligibles' USDC unchanged by penalty."""
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    defaulter = users[1]
+    recipient = users[0]
+
+    for u in users:
+        if u == recipient or u == defaulter:
+            continue
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+            assert pasanaku_contract.successful_obligated_deposits(tid, u) == 1
+
+    slash_total = amount_raw + penalty_per_amount(amount_raw)
+    pre_collateral = pasanaku_contract.collateral(defaulter, usdc_contract.address)
+    owner_pre = usdc_contract.balanceOf(owner)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pre_recipient = usdc_contract.balanceOf(recipient)
+    eligible = [u for u in users if u != recipient and u != defaulter]
+    pre_pay = sum(usdc_contract.balanceOf(u) for u in eligible)
+    tick_and_claim(pasanaku_contract, tid, 0, users)
+
+    pen = penalty_per_amount(amount_raw)
+    assert usdc_contract.balanceOf(recipient) == pre_recipient + amount_raw * (
+        PARTICIPANT_COUNT - 1
+    )
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen
+    assert (
+        pasanaku_contract.collateral(defaulter, usdc_contract.address)
+        == pre_collateral - slash_total
+    )
+
+    post_pay = sum(usdc_contract.balanceOf(u) for u in eligible)
+    assert post_pay == pre_pay
+
+
+def test_happy_path_collateral_in_use_zero_after_end(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for round_idx in range(PARTICIPANT_COUNT):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(tid)
+
+    for u in users:
+        assert pasanaku_contract.collateral_in_use(u, usdc_contract.address) == 0
+
+
+def test_duplicate_deposit_same_round_reverts(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    payer = started_pasanaku["users"][1]
+    extra = amount_raw * 2
+    with boa.env.prank(owner):
+        usdc_contract.mint(payer, extra)
+    with boa.env.prank(payer):
+        usdc_contract.approve(pasanaku_contract.address, extra)
+        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+        with boa.reverts(dev="account already deposited # nosplit"):
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+
+def test_deposit_wrong_amount_reverts(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    payer = started_pasanaku["users"][1]
+    with boa.env.prank(owner):
+        usdc_contract.mint(payer, amount_raw)
+    with boa.env.prank(payer):
+        usdc_contract.approve(pasanaku_contract.address, amount_raw)
+        with boa.reverts(dev="invalid deposit amount"):
+            pasanaku_contract.deposit_to_pasanaku(amount_raw - 1, tid)
+
+
+def test_all_obligated_nonrecipients_default_penalty_to_owner(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    """Nobody deposits; recipient exempt — no eligible depositor; full penalty_pool to owner()."""
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    owner_pre = usdc_contract.balanceOf(owner)
+    pen_total = penalty_per_amount(amount_raw) * (PARTICIPANT_COUNT - 1)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen_total
+    recipient = users[0]
+    for u in users:
+        if u == recipient:
+            continue
+        assert pasanaku_contract.successful_obligated_deposits(tid, u) == 0
+
+
+def test_penalties_all_to_owner_when_eligibles_exist(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    """Round 0 all obligors pay; round 1 one defaulter — full penalty on that round to owner()."""
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for round_idx in range(2):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            if round_idx == 1 and u == users[2]:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+        boa.env.time_travel(seconds=DAYS_40)
+        if round_idx == 0:
+            pasanaku_contract.tick(tid)
+
+    pen = penalty_per_amount(amount_raw)
+    owner_pre = usdc_contract.balanceOf(owner)
+    pasanaku_contract.tick(tid)
+
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen
+
+
+def test_accept_ownership(pasanaku_contract, owner, alice):
+    assert pasanaku_contract.owner() == owner
+    with boa.env.prank(owner):
+        pasanaku_contract.transfer_ownership(alice)
+    assert pasanaku_contract.pending_owner() == alice
+    with boa.env.prank(alice):
+        pasanaku_contract.accept_ownership()
+    assert pasanaku_contract.owner() == alice
+
+
+def test_deposit_increases_contract_escrow_balance(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    payer = started_pasanaku["users"][1]
+    pre_escrow = usdc_contract.balanceOf(pasanaku_contract.address)
+
+    with boa.env.prank(owner):
+        usdc_contract.mint(payer, amount_raw)
+    with boa.env.prank(payer):
+        usdc_contract.approve(pasanaku_contract.address, amount_raw)
+        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    assert usdc_contract.balanceOf(pasanaku_contract.address) == pre_escrow + amount_raw
+
+
+def test_tick_decreases_contract_escrow_by_payout(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    expected_payout = amount_raw * (PARTICIPANT_COUNT - 1)
+    pre_escrow = usdc_contract.balanceOf(pasanaku_contract.address)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    tick_and_claim(pasanaku_contract, tid, 0, users)
+
+    assert (
+        usdc_contract.balanceOf(pasanaku_contract.address)
+        == pre_escrow - expected_payout
+    )
+
+
+def test_second_active_pasanaku_same_asset_starts(
+    pasanaku_contract, owner, usdc_contract
+):
+    users = []
+    for _ in range(PARTICIPANT_COUNT * 2):
+        addr = boa.env.generate_address()
+        boa.env.set_balance(addr, 10**18)
+        users.append(addr)
+
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[:PARTICIPANT_COUNT],
+        amount_raw,
+    )
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 1
+
+    fund_collateral_for_users(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[PARTICIPANT_COUNT : PARTICIPANT_COUNT * 2 - 1],
+        amount_raw,
+    )
+    with boa.env.prank(users[PARTICIPANT_COUNT]):
+        pending_idx = pasanaku_contract.create_pasanaku(
+            usdc_contract.address, amount_raw
+        )
+    for u in users[PARTICIPANT_COUNT + 1 : PARTICIPANT_COUNT * 2 - 1]:
+        with boa.env.prank(u):
+            pasanaku_contract.join_pasanaku(pending_idx)
+
+    last_joiner = users[PARTICIPANT_COUNT * 2 - 1]
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, [last_joiner], amount_raw
+    )
+    with boa.env.prank(last_joiner):
+        pasanaku_contract.join_pasanaku(pending_idx)
+
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 2
+    st = pasanaku_contract.pasanaku(pending_idx)
+    assert st.started != 0
+
+
+def test_pasanaku_starts_after_first_ends(
+    pasanaku_contract, owner, usdc_contract, users, started_pasanaku
+):
+    tid0 = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    for round_idx in range(PARTICIPANT_COUNT):
+        recipient = users[round_idx]
+        for u in users:
+            if u == recipient:
+                continue
+            with boa.env.prank(owner):
+                usdc_contract.mint(u, amount_raw)
+            with boa.env.prank(u):
+                usdc_contract.approve(pasanaku_contract.address, amount_raw)
+                pasanaku_contract.deposit_to_pasanaku(amount_raw, tid0)
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(tid0)
+
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 0
+
+    create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users,
+        amount_raw,
+    )
+    tid1 = token_id_from_last_started(pasanaku_contract)
+    assert tid1 != tid0
+    assert pasanaku_contract.active_pasanaku_for_asset(usdc_contract.address) == 1
+
+
+def test_concurrent_pools_escrow_isolated(pasanaku_contract, owner, usdc_contract):
+    users_a = []
+    users_b = []
+    for _ in range(PARTICIPANT_COUNT):
+        addr = boa.env.generate_address()
+        boa.env.set_balance(addr, 10**18)
+        users_a.append(addr)
+    for _ in range(PARTICIPANT_COUNT):
+        addr = boa.env.generate_address()
+        boa.env.set_balance(addr, 10**18)
+        users_b.append(addr)
+
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(pasanaku_contract, usdc_contract, owner, users_a, amount_raw)
+    tid_a = token_id_from_last_started(pasanaku_contract)
+
+    create_and_join_all(pasanaku_contract, usdc_contract, owner, users_b, amount_raw)
+    tid_b = token_id_from_last_started(pasanaku_contract)
+
+    for u in users_b[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid_b)
+
+    escrow_b_before = pasanaku_contract.pool_escrow(tid_b)
+    assert escrow_b_before == amount_raw * (PARTICIPANT_COUNT - 1)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid_a)
+
+    assert pasanaku_contract.pool_escrow(tid_b) == escrow_b_before
+
+    boa.env.time_travel(seconds=DAYS_40)
+    tick_and_claim(pasanaku_contract, tid_b, 0, users_b)
+
+    recipient_b = users_b[0]
+    expected = amount_raw * (PARTICIPANT_COUNT - 1)
+    assert usdc_contract.balanceOf(recipient_b) == expected
+    assert pasanaku_contract.pool_escrow(tid_b) == 0
+
+
+def test_pool_escrow_tracks_deposits_and_slashes(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+
+    assert pasanaku_contract.pool_escrow(tid) == 0
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    assert pasanaku_contract.pool_escrow(tid) == amount_raw * (PARTICIPANT_COUNT - 1)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    tick_and_claim(pasanaku_contract, tid, 0, users)
+
+    assert pasanaku_contract.pool_escrow(tid) == 0
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    expected_payout = amount_raw * (PARTICIPANT_COUNT - 1)
+    assert pasanaku_contract.pending_payout(tid, 1) == expected_payout
+    assert pasanaku_contract.pool_escrow(tid) == 0
+
+
+def test_contract_wallet_can_start_pool(pasanaku_contract, owner, usdc_contract, users):
+    noop = noop_contract.deploy()
+    users = users[: PARTICIPANT_COUNT - 1] + [noop.address]
+    amount_raw = PASANAKU_AMOUNT_RAW
+    create_and_join_all(pasanaku_contract, usdc_contract, owner, users, amount_raw)
+    tid = token_id_from_last_started(pasanaku_contract)
+    assert pasanaku_contract.balanceOf(noop.address, tid) == 1
+
+
+def test_penalty_transfer_reaches_owner(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    defaulter = users[1]
+    recipient = users[0]
+
+    for u in users:
+        if u == recipient or u == defaulter:
+            continue
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    owner_pre = usdc_contract.balanceOf(owner)
+    boa.env.time_travel(seconds=DAYS_40)
+    tick_and_claim(pasanaku_contract, tid, 0, users)
+
+    pen = penalty_per_amount(amount_raw)
+    assert usdc_contract.balanceOf(owner) == owner_pre + pen
+
+
+def test_tick_advances_without_claim(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    recipient = users[0]
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    pre_recipient = usdc_contract.balanceOf(recipient)
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    expected = amount_raw * (PARTICIPANT_COUNT - 1)
+    assert pasanaku_contract.pending_payout(tid, 0) == expected
+    assert usdc_contract.balanceOf(recipient) == pre_recipient
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.index == 1
+
+
+def test_claim_round_payout_only_recipient(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    non_recipient = users[1]
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    with boa.reverts():
+        with boa.env.prank(non_recipient):
+            pasanaku_contract.claim_round_payout(tid, 0)
+
+
+def test_claim_round_payout_pays_recipient(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    recipient = users[0]
+
+    for u in users[1:]:
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    pre_recipient = usdc_contract.balanceOf(recipient)
+    expected = amount_raw * (PARTICIPANT_COUNT - 1)
+    with boa.env.prank(recipient):
+        pasanaku_contract.claim_round_payout(tid, 0)
+
+    assert usdc_contract.balanceOf(recipient) == pre_recipient + expected
+    assert pasanaku_contract.pending_payout(tid, 0) == 0
