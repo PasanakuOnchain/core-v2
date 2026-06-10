@@ -109,7 +109,7 @@ Key invariants to preserve when changing code:
 ```bash
 mox test
 mox test --coverage
-mox test tests/test_pasanaku.py -k tick
+mox test tests/unitary/pasanaku/test_tick_claim.py -k tick
 ```
 
 Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).

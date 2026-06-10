@@ -1,7 +1,7 @@
 import os
 
 from moccasin.boa_tools import VyperContract
-from src import pasanaku
+from src import Pasanaku as pasanaku
 
 
 def _require_env(name: str) -> str:

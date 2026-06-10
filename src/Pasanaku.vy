@@ -586,9 +586,8 @@ def _mint_membership_token(owner: address, token_id: uint256):
     assert owner != empty(address)
     amount: uint256 = _TOKEN_AMOUNT
 
-    erc1155.balanceOf[owner][token_id] = unsafe_add(
-        erc1155.balanceOf[owner][token_id], amount
-    )
+    erc1155.total_supply[token_id] += amount
+    erc1155.balanceOf[owner][token_id] += amount
     log IERC1155.TransferSingle(
         _operator=msg.sender,
         _from=empty(address),
