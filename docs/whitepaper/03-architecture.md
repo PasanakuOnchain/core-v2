@@ -112,6 +112,7 @@ flowchart TB
 - [ADR-0001: Pull-claim payouts](../adr/0001-pull-claim-payouts.md)
 - [ADR-0002: No single active pool cap](../adr/0002-no-single-active-pool-cap.md)
 - [ADR-0003: Stale pending exit](../adr/0003-stale-pending-exit.md)
+- [ADR-0004: Soulbound membership receipt](../adr/0004-soulbound-membership-receipt.md)
 
 ---
 

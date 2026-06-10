@@ -1,6 +1,10 @@
 # Pasanaku whitepaper
 
-A narrative guide to the Pasanaku rotating savings protocol. This document explains *why* and *how* at a product level; precise integrator details live in the root [README.md](../../README.md) and [CONTEXT.md](../../CONTEXT.md).
+A narrative guide to the Pasanaku rotating savings protocol.
+
+**Single-file overview:** [../whitepaper.md](../whitepaper.md) — recommended starting point for community and product readers.
+
+This directory expands the whitepaper into chapters. Precise integrator details live in the root [README.md](../../README.md) and [CONTEXT.md](../../CONTEXT.md).
 
 ## Reading order
 

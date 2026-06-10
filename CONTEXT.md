@@ -151,7 +151,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ---
 
-### Creation fee
+### Creation fee (ETH)
 
 **Language:** Native ETH required on `create_pasanaku` only. View: `fee()`. Owner sets via `set_fee` (0 to 0.001 ETH). Swept via `collect_fees()`.
 
@@ -160,6 +160,18 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 **Example dialogue:**
 - ✅ “Pool creation costs 0.0005 ETH plus the USDC pledge lock.”
 - ❌ “Participants pay a fee each round.” (only create, not deposit)
+
+---
+
+### collect_fees
+
+**Language:** Owner-only `collect_fees()` — transfers the contract’s native ETH balance to `owner()`. Emits `FeesCollected`. Used for accumulated creation fees from `create_pasanaku`.
+
+**Relationships:** Does not sweep ERC20 (miss penalties transfer on tick). Distinct from `withdraw_collateral`. Requires successful ETH transfer to owner.
+
+**Example dialogue:**
+- ✅ “Owner called collect_fees after ten pools were created at 0.0001 ETH each.”
+- ❌ “collect_fees pulls USDC penalties.” (penalties are ERC20 on tick, not ETH sweep)
 
 ---
 
@@ -191,7 +203,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Language:** **Deployed today:** collateral-backed ROSCA pools, soulbound ERC-1155, Ownable admin (`owner()` treasury), permissionless tick. **Not deployed:** NAKU token governance, fee distribution to stakers, tradable membership NFTs.
 
-**Relationships:** Future vision belongs in `docs/whitepaper/09-protocol-vision.md`. Do not imply NAKU or token-holder revenue exists onchain in core-v2.
+**Relationships:** Future vision belongs in `docs/whitepaper.md` (Roadmap) and `docs/whitepaper/09-protocol-vision.md`. Do not imply NAKU or token-holder revenue exists onchain in core-v2.
 
 **Example dialogue:**
 - ✅ “Today penalties go to owner(); NAKU staker fee share is a planned upgrade.”
@@ -260,7 +272,8 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 | Pools per asset | Counter; multiple active allowed | “One active pool per asset” (unless code adds `assert`) |
 | Assets | Four deployment-configured ERC20s | Hardcoding wstETH/GHO vs whatever `deploy.py` uses |
 | Token | Non-transferable ERC1155 membership receipt | Tradeable NFT / soulbound marketing without “reverts on transfer” |
-| NAKU / governance | Planned only — not in core-v2 | Token holders earn fees today |
+| Governance (today) | Ownable two-step admin: `set_fee`, `set_stale_time`, `collect_fees`; treasury via `owner()` | NAKU token votes or staker fee share exist today |
+| NAKU / governance (roadmap) | Planned only — not in core-v2 | Token holders earn fees today |
 | ERC20 | Standard transfer semantics | Fee-on-transfer, rebasing, donation tokens |
 | Admin | No pause / force tick / upgrade on instance | Emergency admin can freeze pools |
 | onchain | one word | on-chain |
@@ -282,5 +295,6 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 - `README.md` — contributor and integrator reference
 - `docs/README.md` — documentation hub
-- `docs/whitepaper/` — narrative protocol overview
+- `docs/whitepaper.md` — public-facing whitepaper
+- `docs/whitepaper/` — extended chapter-by-chapter narrative
 - `docs/adr/README.md` — when to record irreversible decisions

@@ -34,7 +34,7 @@ Integrators and wallets should use `uri()` for display badges and explorer links
 
 > **Planned (not deployed)**
 >
-> A future version might allow transferable membership or fractional pool shares. That would require new contract logic and is **not** current behavior. Until then, document transfers as reverting.
+> A future version might allow transferable membership or fractional pool shares. That would require new contract logic and is **not** current behavior. Until then, document transfers as reverting. Rationale for soulbound design: [ADR-0004](../adr/0004-soulbound-membership-receipt.md).
 
 ---
 

@@ -2,6 +2,8 @@
 
 Onchain rotating savings pools with collateral-backed round obligations. Each pool has ten participants, ten payout rounds, and permissionless settlement after each 40-day deposit window.
 
+**Conceptual overview:** [docs/whitepaper.md](docs/whitepaper.md) · **Documentation hub:** [docs/README.md](docs/README.md)
+
 **Source of truth:** `src/Pasanaku.vy` and tests. If prose here disagrees with the contract, the contract wins.
 
 ## What it does
@@ -231,8 +233,8 @@ mox run deploy_mocks
 
 | Resource | Audience |
 |----------|----------|
-| [docs/README.md](docs/README.md) | Documentation hub and table of contents |
-| [docs/whitepaper/](docs/whitepaper/) | Narrative protocol overview (10 chapters) |
+| [docs/README.md](docs/README.md) | Documentation hub |
+| [docs/whitepaper.md](docs/whitepaper.md) | Public narrative — economics, governance, security |
 | [docs/protocol-flow.md](docs/protocol-flow.md) | Contract-centric lifecycle diagram |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 | [CONTEXT.md](CONTEXT.md) | Domain glossary and wording guardrails |
@@ -245,7 +247,12 @@ script/deploy.py     # Mainnet-style asset env deploy
 script/deploy_mocks.py
 tests/               # Titanoboa pytest suite
 CONTEXT.md           # Domain glossary for agents (/grill-with-docs)
-docs/                # Whitepaper, protocol flow, ADRs
+docs/
+  README.md          # Documentation hub
+  whitepaper.md      # Public-facing whitepaper
+  protocol-flow.md   # Lifecycle diagram
+  adr/               # Architecture decision records
+  whitepaper/        # Extended chapter-by-chapter narrative
 ```
 
 ### Contributing
