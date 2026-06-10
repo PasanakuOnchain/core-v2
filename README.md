@@ -14,9 +14,29 @@ A **pasanaku** is a fixed-membership pool over one supported ERC20:
 4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, accrue principal to `pending_payout`, advance the index, and route penalties to treasury.
 5. After ten ticks, the pool **ends** and pledged collateral unlocks (minus any amounts already slashed during the pool).
 
-See [docs/protocol-flow.md](docs/protocol-flow.md) for a visual lifecycle.
+See [docs/protocol-flow.md](docs/protocol-flow.md) for a visual lifecycle and [docs/README.md](docs/README.md) for the full documentation index.
 
 Round deposits sit in per-pool escrow (`pool_escrow`) until tick accrues payout; the recipient claims via `claim_round_payout`. There is no external lending integration.
+
+## Pool creation fee (ETH)
+
+Creating a pool requires a native ETH fee sent with `create_pasanaku`:
+
+- View current fee: `fee()` (default **0** at deploy).
+- Owner sets fee: `set_fee(fee)` — range **0 to 0.001 ETH** (`_MIN_FEE` / `_MAX_FEE`).
+- Owner sweeps accumulated ETH: `collect_fees()` — transfers contract ETH balance to `owner()`.
+- `join_pasanaku` does **not** require ETH; only create does.
+
+The creation fee is separate from pool collateral (ERC20) and from miss penalties.
+
+## Stale pending pools
+
+A pool that never reaches ten members remains **pending** (`started == 0`). After `created + stale_time`, participants may exit:
+
+- `leave_pasanaku(token_id)` — unlocks that participant’s pledged collateral and removes them from the pool. Emits `PasanakuLeft`.
+- `stale_time` is configurable by owner via `set_stale_time(days)` — **3 to 7 days** (default **7** at deploy).
+
+Integrators should surface stale eligibility and prompt participants to leave or recruit remaining members before the window closes.
 
 ## Economics (formula-first)
 
@@ -72,7 +92,26 @@ Integrators should not assume “one pool per token” unless a future version a
 
 ### Owner role
 
-`owner()` (two-step ownable) receives **miss penalties** only. Participants still rely on collateral and permissionless `tick` for round settlement; the owner is not a round operator.
+`owner()` (two-step ownable) is the protocol treasury:
+
+- Receives **miss penalties** (ERC20) on each tick.
+- Receives **creation fees** (ETH) via `collect_fees()`.
+- May configure `set_fee` and `set_stale_time`.
+
+The owner does **not** operate rounds — settlement remains permissionless via `tick`. The owner cannot redirect recipient payouts or force-settle pools.
+
+### ERC-1155 membership metadata
+
+Each pool `token_id` maps to a soulbound ERC-1155 receipt (transfers revert). The `uri(token_id)` view returns IPFS metadata reflecting pool state:
+
+| State | Condition |
+|-------|-----------|
+| **pending** | Created, not started, not yet stale |
+| **stale** | Pending and `created + stale_time` elapsed |
+| **ongoing** | Started, not ended |
+| **ended** | Pool completed after round 9 tick |
+
+Use `uri()` for wallet and explorer display; do not assume tradability.
 
 ## Security assumptions and guarantee boundaries
 
@@ -130,14 +169,17 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 | `pool_escrow(id)`                                      | Per-pool ERC20 attribution ledger                                     |
 | `pending_payout(id, round_idx)`                        | Accrued principal awaiting recipient claim                            |
 | `claim_round_payout(id, round_idx)`                    | Recipient pulls principal after tick (write)                          |
+| `fee()`                                                | ETH required on `create_pasanaku` (0–0.001 ETH)                         |
+| `uri(id)`                                              | ERC-1155 metadata URI by pool state (pending/stale/ongoing/ended)     |
 
 
 **Lifecycle events** (index for state changes):
 
-- `PasanakuCreated`, `PasanakuJoined`, `PasanakuStarted`
+- `PasanakuCreated`, `PasanakuJoined`, `PasanakuLeft`, `PasanakuStarted`
 - `PasanakuDeposited` (per-round obligor payment)
 - `PasanakuTicked`, `PasanakuPenalties`, `PasanakuEnded`
 - `CollateralAdded`, `CollateralWithdrawn`
+- `FeeSet`, `StaleTimeSet`, `FeesCollected`
 
 **Integration checklist**
 
@@ -148,6 +190,8 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 5. Surface `updated + 40 days` for tick eligibility; call or relay `tick` permissionlessly.
 6. After tick, prompt the round recipient to call `claim_round_payout(token_id, round_idx)` (or relay it).
 7. Do not assume one active pool per asset; use `token_id` as the primary key.
+8. On create, attach `msg.value >= fee()`; listen for `FeeSet` to update UI.
+9. For pending pools, compare `pasanaku(id).created` against stale window (default 7 days; `StaleTimeSet` event); offer `leave_pasanaku` when eligible.
 
 ## Development
 
@@ -183,6 +227,16 @@ Mock ERC20s for local experiments:
 mox run deploy_mocks
 ```
 
+## Documentation
+
+| Resource | Audience |
+|----------|----------|
+| [docs/README.md](docs/README.md) | Documentation hub and table of contents |
+| [docs/whitepaper/](docs/whitepaper/) | Narrative protocol overview (10 chapters) |
+| [docs/protocol-flow.md](docs/protocol-flow.md) | Contract-centric lifecycle diagram |
+| [docs/adr/](docs/adr/) | Architecture decision records |
+| [CONTEXT.md](CONTEXT.md) | Domain glossary and wording guardrails |
+
 ### Repo layout
 
 ```
@@ -191,8 +245,7 @@ script/deploy.py     # Mainnet-style asset env deploy
 script/deploy_mocks.py
 tests/               # Titanoboa pytest suite
 CONTEXT.md           # Domain glossary for agents (/grill-with-docs)
-docs/protocol-flow.md # Onchain pool lifecycle diagram
-docs/adr/            # Architecture decision records
+docs/                # Whitepaper, protocol flow, ADRs
 ```
 
 ### Contributing

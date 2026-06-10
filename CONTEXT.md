@@ -141,13 +141,61 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ### Treasury sink
 
-**Language:** `owner()` receives aggregated miss penalties only, not obligor principal.
+**Language:** `owner()` receives aggregated miss penalties (ERC20) and creation fees (ETH via `collect_fees()`), not obligor principal.
 
-**Relationships:** Ownable two-step; economically relevant but does not operate rounds.
+**Relationships:** Ownable two-step; economically relevant but does not operate rounds. Configures `set_fee` and `set_stale_time`.
 
 **Example dialogue:**
 - ✅ “Treasury earned 0.4 USDC in penalties this tick.”
 - ❌ “Owner can redirect recipient payouts.”
+
+---
+
+### Creation fee
+
+**Language:** Native ETH required on `create_pasanaku` only. View: `fee()`. Owner sets via `set_fee` (0 to 0.001 ETH). Swept via `collect_fees()`.
+
+**Relationships:** Distinct from ERC20 collateral and miss penalties. Default is **0** at deploy. `join_pasanaku` is free of ETH.
+
+**Example dialogue:**
+- ✅ “Pool creation costs 0.0005 ETH plus the USDC pledge lock.”
+- ❌ “Participants pay a fee each round.” (only create, not deposit)
+
+---
+
+### Stale pool / leave_pasanaku
+
+**Language:** Pending pool (`started == 0`) where `created + stale_time <= now`. Participants may `leave_pasanaku(token_id)` to unlock pledged collateral and exit.
+
+**Relationships:** `stale_time` is 3–7 days (default 7), set by owner via `set_stale_time`. Emits `PasanakuLeft`. ERC-1155 `uri()` returns stale metadata when eligible.
+
+**Example dialogue:**
+- ✅ “Pool 12 is stale with 4/10 members; Alice called leave_pasanaku.”
+- ❌ “Stale pools auto-cancel and refund everyone.” (each participant must leave individually)
+
+---
+
+### Pull claim
+
+**Language:** Payout delivery model: `tick` accrues principal to `pending_payout`; recipient must call `claim_round_payout` to receive ERC20.
+
+**Relationships:** Pool index advances on tick even if claim is delayed. See ADR-0001.
+
+**Example dialogue:**
+- ✅ “After tick, the recipient pulls payout via claim_round_payout.”
+- ❌ “Tick automatically sends tokens to the recipient wallet.”
+
+---
+
+### Protocol vision vs deployed behavior
+
+**Language:** **Deployed today:** collateral-backed ROSCA pools, soulbound ERC-1155, Ownable admin (`owner()` treasury), permissionless tick. **Not deployed:** NAKU token governance, fee distribution to stakers, tradable membership NFTs.
+
+**Relationships:** Future vision belongs in `docs/whitepaper/09-protocol-vision.md`. Do not imply NAKU or token-holder revenue exists onchain in core-v2.
+
+**Example dialogue:**
+- ✅ “Today penalties go to owner(); NAKU staker fee share is a planned upgrade.”
+- ❌ “Token holders receive protocol fees.” (without “planned / not deployed” qualifier)
 
 ---
 
@@ -212,6 +260,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 | Pools per asset | Counter; multiple active allowed | “One active pool per asset” (unless code adds `assert`) |
 | Assets | Four deployment-configured ERC20s | Hardcoding wstETH/GHO vs whatever `deploy.py` uses |
 | Token | Non-transferable ERC1155 membership receipt | Tradeable NFT / soulbound marketing without “reverts on transfer” |
+| NAKU / governance | Planned only — not in core-v2 | Token holders earn fees today |
 | ERC20 | Standard transfer semantics | Fee-on-transfer, rebasing, donation tokens |
 | Admin | No pause / force tick / upgrade on instance | Emergency admin can freeze pools |
 | onchain | one word | on-chain |
@@ -223,6 +272,8 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 - `N = 10`
 - `MISS_PENALTY_BPS = 5`
 - `_DAYS_40 = 40 * 24 * 60 * 60`
+- `_DAYS_3` / `_DAYS_7` — stale window bounds (default 7 days)
+- `_MAX_FEE = 0.001 ETH` — creation fee cap
 - Supported asset count = 4 (addresses from constructor)
 
 ---
@@ -230,4 +281,6 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 ## Related docs
 
 - `README.md` — contributor and integrator reference
+- `docs/README.md` — documentation hub
+- `docs/whitepaper/` — narrative protocol overview
 - `docs/adr/README.md` — when to record irreversible decisions

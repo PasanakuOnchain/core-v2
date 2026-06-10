@@ -1,12 +1,18 @@
 # Protocol lifecycle
 
-Pasanaku runs an onchain rotating savings pool: participants fund collateral, join a ten-member pool, deposit each round, and permissionless ticks settle payouts until the pool ends and pledged collateral unlocks.
+Pasanaku runs an onchain rotating savings pool: participants fund collateral, join a ten-member pool, deposit each round, and permissionless ticks settle payouts until the pool ends and pledged collateral unlocks. Pending pools that never fill may become stale; participants can exit via `leave_pasanaku`.
 
 ```mermaid
 flowchart TD
     addCollateral[add_collateral] --> createJoin[create_pasanaku / join_pasanaku]
     createJoin --> lockPledge["lock pledge(amount) in collateral_in_use"]
-    createJoin --> startPool["_start_pasanaku when 10 members"]
+    createJoin --> pendingCheck{10 members?}
+    pendingCheck -->|no| staleCheck{created + stale_time elapsed?}
+    staleCheck -->|yes| leavePool[leave_pasanaku]
+    leavePool --> unlockLeave["_unlock_participant_collateral_in_use"]
+    staleCheck -->|no| pendingWait[wait for joins or stale window]
+    pendingWait --> pendingCheck
+    pendingCheck -->|yes| startPool["_start_pasanaku when 10 members"]
     startPool --> depositRound[deposit_to_pasanaku per round]
     depositRound --> poolEscrowCredit["pool_escrow += amount"]
     depositRound --> tick[tick after 40 days]
@@ -26,8 +32,11 @@ flowchart TD
 | Node | Contract surface |
 |------|------------------|
 | `add_collateral` | `add_collateral(asset, amount)` — credit collateral ledger and pull ERC20 |
-| `create_pasanaku / join_pasanaku` | `create_pasanaku(asset, amount)` · `join_pasanaku(token_id)` |
+| `create_pasanaku / join_pasanaku` | `create_pasanaku(asset, amount)` (payable, ETH fee) · `join_pasanaku(token_id)` |
 | `lock pledge(amount)` | `_update_collateral_in_use` · view `pledge(amount)` |
+| `created + stale_time elapsed?` | Pending pool age check; `stale_time` is 3–7 days (default 7), owner-configurable via `set_stale_time` |
+| `leave_pasanaku` | `leave_pasanaku(token_id)` — participant exits stale pending pool; emits `PasanakuLeft` |
+| `_unlock_participant_collateral_in_use` | Internal — release one participant’s pledge on leave |
 | `_start_pasanaku when 10 members` | Internal start on tenth join; mints ERC1155 membership via `_mint_membership_token` |
 | `deposit_to_pasanaku per round` | `deposit_to_pasanaku(amount, token_id)` — obligor escrow |
 | `pool_escrow += amount` | `_pool_escrow[token_id]` credited after successful `transferFrom` |
