@@ -8,6 +8,7 @@ from tests.utils.constants import (
 )
 from tests.utils.helpers import (
     create_and_join_all,
+    create_pasanaku,
     fund_collateral_for_users,
     pledge,
     token_id_from_last_started,
@@ -33,7 +34,7 @@ def test_create_first_pasanaku_returns_zero(
         pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
     )
     with boa.env.prank(users[0]):
-        idx = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        idx = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
     assert idx == 0
 
 
@@ -44,7 +45,7 @@ def test_create_pasanaku_emits_event(pasanaku_contract, owner, usdc_contract, us
         pasanaku_contract, usdc_contract, owner, [creator], amount_raw
     )
     with boa.env.prank(creator):
-        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
     created = [
         log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuCreated"
@@ -68,20 +69,20 @@ def test_create_insufficient_collateral_reverts(
         pasanaku_contract.add_collateral(usdc_contract.address, need - 1)
     with boa.reverts(dev="insufficient collateral # nosplit"):
         with boa.env.prank(creator):
-            pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+            create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
 
 def test_create_unsupported_asset_reverts(pasanaku_contract, users):
     fake_asset = boa.env.generate_address()
     with boa.reverts(dev="unsupported asset"):
         with boa.env.prank(users[0]):
-            pasanaku_contract.create_pasanaku(fake_asset, PASANAKU_AMOUNT_RAW)
+            create_pasanaku(pasanaku_contract, fake_asset, PASANAKU_AMOUNT_RAW)
 
 
 def test_create_zero_amount_reverts(pasanaku_contract, users, usdc_contract):
     with boa.reverts(dev="invalid amount"):
         with boa.env.prank(users[0]):
-            pasanaku_contract.create_pasanaku(usdc_contract.address, 0)
+            create_pasanaku(pasanaku_contract, usdc_contract.address, 0)
 
 
 def test_join_insufficient_collateral_reverts(
@@ -93,9 +94,7 @@ def test_join_insufficient_collateral_reverts(
         pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
     )
     with boa.env.prank(users[0]):
-        pending_idx = pasanaku_contract.create_pasanaku(
-            usdc_contract.address, amount_raw
-        )
+        pending_idx = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
     u = users[1]
     with boa.env.prank(owner):
@@ -129,7 +128,7 @@ def test_join_emits_event(pasanaku_contract, owner, usdc_contract, users):
         pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
     with boa.env.prank(users[1]):
         pasanaku_contract.join_pasanaku(token_id)
 
@@ -171,7 +170,7 @@ def test_leave_pasanaku_before_stale_reverts(
         pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
     with boa.env.prank(users[1]):
         pasanaku_contract.join_pasanaku(token_id)
 
@@ -195,7 +194,7 @@ def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral
         pasanaku_contract, usdc_contract, owner, users, amount_raw
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
     for user in users[1:]:
         with boa.env.prank(user):
             pasanaku_contract.join_pasanaku(token_id)

@@ -34,6 +34,11 @@ def logs_from_last_tx(pasanaku_contract):
     return pasanaku_contract.get_logs()
 
 
+def create_pasanaku(pasanaku_contract, asset_address, amount_raw, *, value=None):
+    fee = pasanaku_contract.fee() if value is None else value
+    return pasanaku_contract.create_pasanaku(asset_address, amount_raw, value=fee)
+
+
 def fund_collateral_for_users(
     pasanaku_contract, asset, owner, users, amount_raw, raw=False
 ):
@@ -49,7 +54,7 @@ def fund_collateral_for_users(
 def create_and_join_all(pasanaku_contract, asset, owner, users, amount_raw):
     fund_collateral_for_users(pasanaku_contract, asset, owner, users, amount_raw)
     with boa.env.prank(users[0]):
-        pending_idx = pasanaku_contract.create_pasanaku(asset.address, amount_raw)
+        pending_idx = create_pasanaku(pasanaku_contract, asset.address, amount_raw)
     for u in users[1:]:
         with boa.env.prank(u):
             pasanaku_contract.join_pasanaku(pending_idx)

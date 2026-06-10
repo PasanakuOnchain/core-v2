@@ -14,3 +14,6 @@ URI_PENDING = "ipfs://QmZ9PeXU9sUbax7SPAbyoBZawNqCrdgtEYXdipzMYi4Rsp"
 MISS_PENALTY_BPS = 5
 BPS_PRECISION = 10_000
 
+MIN_FEE = 0
+MAX_FEE = 10**15  # 0.001 ether — matches _MAX_FEE in Pasanaku.vy
+

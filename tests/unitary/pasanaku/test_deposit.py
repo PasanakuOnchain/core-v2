@@ -1,7 +1,7 @@
 import boa
 
 from tests.utils.constants import PASANAKU_AMOUNT_RAW
-from tests.utils.helpers import fund_collateral_for_users
+from tests.utils.helpers import create_pasanaku, fund_collateral_for_users
 
 
 def test_recipient_cannot_deposit(
@@ -135,7 +135,7 @@ def test_deposit_before_start_reverts(
         pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
     payer = users[0]
     with boa.env.prank(owner):

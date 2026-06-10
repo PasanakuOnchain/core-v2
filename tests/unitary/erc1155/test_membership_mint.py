@@ -1,7 +1,7 @@
 import boa
 
 from tests.utils.constants import PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW, TOKEN_AMOUNT
-from tests.utils.helpers import create_and_join_all, fund_collateral_for_users
+from tests.utils.helpers import create_and_join_all, create_pasanaku, fund_collateral_for_users
 from tests.mocks import noop_contract
 
 
@@ -11,8 +11,8 @@ def test_membership_not_minted_before_start(pasanaku_contract, owner, usdc_contr
         pasanaku_contract, usdc_contract, owner, users[:2], PASANAKU_AMOUNT_RAW
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(
-            usdc_contract.address, PASANAKU_AMOUNT_RAW
+        token_id = create_pasanaku(
+            pasanaku_contract, usdc_contract.address, PASANAKU_AMOUNT_RAW
         )
 
     assert pasanaku_contract.total_supply(token_id) == 0

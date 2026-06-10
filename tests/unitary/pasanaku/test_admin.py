@@ -32,14 +32,14 @@ def test_set_stale_time_non_owner_reverts(pasanaku_contract, alice):
 
 def test_set_stale_time_below_min_reverts(pasanaku_contract, owner):
     too_short = DAYS_3 - 1
-    with boa.reverts(dev="pasanaku stale time out of range"):
+    with boa.reverts(dev="stale time out of range"):
         with boa.env.prank(owner):
             pasanaku_contract.set_stale_time(too_short)
 
 
 def test_set_stale_time_above_max_reverts(pasanaku_contract, owner):
     too_long = DAYS_7 + 1
-    with boa.reverts(dev="pasanaku stale time out of range"):
+    with boa.reverts(dev="stale time out of range"):
         with boa.env.prank(owner):
             pasanaku_contract.set_stale_time(too_long)
 

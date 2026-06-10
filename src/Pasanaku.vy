@@ -144,6 +144,14 @@ event StaleTimeSet:
     days: uint256
 
 
+event FeeSet:
+    fee: uint256
+
+
+event FeesCollected:
+    target: indexed(address)
+
+
 struct Pasanaku:
     token_id: uint256
     asset: address
@@ -165,6 +173,8 @@ _SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
 _SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
 _TOKEN_AMOUNT: constant(uint256) = 1
 _BPS_PRECISION: constant(uint256) = 10000
+_MAX_FEE: constant(uint256) = as_wei_value(0.001, "ether")
+_MIN_FEE: constant(uint256) = 0
 
 _counter: uint256
 _pasanakus: HashMap[uint256, Pasanaku]
@@ -177,7 +187,7 @@ _active_pasanaku_by_asset: HashMap[address, uint256]
 _stale_time: uint256
 _pool_escrow: HashMap[uint256, uint256]
 _pending_payout: HashMap[uint256, HashMap[uint256, uint256]]  # token_id -> round_idx -> amount # nosplit
-
+_fee: uint256
 
 @deploy
 @payable
@@ -263,7 +273,9 @@ def withdraw_collateral(asset: address, amount: uint256):
 
 
 @external
+@payable
 def create_pasanaku(asset: address, amount: uint256) -> uint256:
+    assert msg.value >= self._fee  # dev: insufficient fee
     assert amount > 0  # dev: invalid amount
     assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
 
@@ -385,10 +397,49 @@ def tick(token_id: uint256):
 @external
 def set_stale_time(days: uint256):
     ow._check_owner()
-    assert days >= _DAYS_3  # dev: pasanaku stale time out of range
-    assert days <= _DAYS_7  # dev: pasanaku stale time out of range
+    assert days >= _DAYS_3  # dev: stale time out of range
+    assert days <= _DAYS_7  # dev: stale time out of range
     self._stale_time = days
     log StaleTimeSet(days=days)
+
+
+@external
+@nonreentrant
+def claim_round_payout(token_id: uint256, round_idx: uint256):
+    pasanaku: Pasanaku = self._pasanakus[token_id]
+    recipient: address = pasanaku.participants[round_idx]
+    assert msg.sender == recipient
+    amount: uint256 = self._pending_payout[token_id][round_idx]
+    assert amount > 0
+    self._pending_payout[token_id][round_idx] = 0
+    success: bool = extcall IERC20(pasanaku.asset).transfer(
+        recipient, amount, default_return_value=True
+    )
+    assert success
+
+
+@external
+def set_fee(fee: uint256):
+    ow._check_owner()
+    assert fee >= _MIN_FEE  # dev: fee is out of range
+    assert fee <= _MAX_FEE  # dev: fee is out of range
+    self._fee = fee
+    log FeeSet(fee=fee)
+
+
+@external
+def collect_fees():
+    success: bool = False
+    respose: Bytes[32] = b""
+    success, respose = raw_call(
+        ow.owner,
+        b"",
+        max_outsize=32,
+        value=self.balance,
+        revert_on_failure=False
+    )
+    assert success
+    log FeesCollected(target=ow.owner)
 
 
 @external
@@ -516,21 +567,6 @@ def pending_payout(token_id: uint256, round_idx: uint256) -> uint256:
 
 
 @external
-@nonreentrant
-def claim_round_payout(token_id: uint256, round_idx: uint256):
-    pasanaku: Pasanaku = self._pasanakus[token_id]
-    recipient: address = pasanaku.participants[round_idx]
-    assert msg.sender == recipient
-    amount: uint256 = self._pending_payout[token_id][round_idx]
-    assert amount > 0
-    self._pending_payout[token_id][round_idx] = 0
-    success: bool = extcall IERC20(pasanaku.asset).transfer(
-        recipient, amount, default_return_value=True
-    )
-    assert success
-
-
-@external
 @view
 def free_collateral(participant: address, asset: address) -> uint256:
     collateral: uint256 = self._collateral[participant][asset]
@@ -539,6 +575,12 @@ def free_collateral(participant: address, asset: address) -> uint256:
         return 0
 
     return collateral - in_use
+
+
+@external
+@view
+def fee() -> uint256:
+    return self._fee
 
 
 @external

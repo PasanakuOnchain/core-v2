@@ -11,7 +11,7 @@ from tests.utils.constants import (
     URI_PENDING,
     URI_STALE,
 )
-from tests.utils.helpers import deposit_all_obligors, fund_collateral_for_users
+from tests.utils.helpers import create_pasanaku, deposit_all_obligors, fund_collateral_for_users
 
 
 def test_uri_unknown_token_not_created(pasanaku_contract):
@@ -32,7 +32,7 @@ def test_uri_pending_token(pasanaku_contract, owner, users, usdc_contract):
         PASANAKU_AMOUNT_RAW,
     )
     with boa.env.prank(users[0]):
-        pasanaku_contract.create_pasanaku(usdc_contract.address, PASANAKU_AMOUNT_RAW)
+        create_pasanaku(pasanaku_contract, usdc_contract.address, PASANAKU_AMOUNT_RAW)
     assert pasanaku_contract.uri(0) == URI_PENDING
 
 
@@ -47,8 +47,8 @@ def test_uri_stale_pending_pasanaku(pasanaku_contract, owner, users, usdc_contra
         PASANAKU_AMOUNT_RAW,
     )
     with boa.env.prank(users[0]):
-        token_id = pasanaku_contract.create_pasanaku(
-            usdc_contract.address, PASANAKU_AMOUNT_RAW
+        token_id = create_pasanaku(
+            pasanaku_contract, usdc_contract.address, PASANAKU_AMOUNT_RAW
         )
     assert pasanaku_contract.uri(token_id) == URI_PENDING
 
