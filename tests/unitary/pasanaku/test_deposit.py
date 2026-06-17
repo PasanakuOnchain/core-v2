@@ -96,7 +96,9 @@ def test_deposit_emits_event(pasanaku_contract, owner, usdc_contract, started_pa
         pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
 
     deposited = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuDeposited"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "PasanakuDeposited"
     ]
     assert len(deposited) == 1
     assert deposited[0].account == payer
@@ -127,9 +129,7 @@ def test_deposit_not_participant_reverts(
             pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
 
 
-def test_deposit_before_start_reverts(
-    pasanaku_contract, owner, usdc_contract, users
-):
+def test_deposit_before_start_reverts(pasanaku_contract, owner, usdc_contract, users):
     amount_raw = PASANAKU_AMOUNT_RAW
     fund_collateral_for_users(
         pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
@@ -160,7 +160,9 @@ def test_successful_obligated_deposits_increments_per_round(
         with boa.env.prank(payer):
             usdc_contract.approve(pasanaku_contract.address, amount_raw)
             pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-        assert pasanaku_contract.successful_obligated_deposits(tid, payer) == round_idx + 1
+        assert (
+            pasanaku_contract.successful_obligated_deposits(tid, payer) == round_idx + 1
+        )
         if round_idx == 0:
             boa.env.time_travel(seconds=40 * 24 * 60 * 60)
             pasanaku_contract.tick(tid)

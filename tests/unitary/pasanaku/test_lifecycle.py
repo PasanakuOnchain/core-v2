@@ -48,7 +48,9 @@ def test_create_pasanaku_emits_event(pasanaku_contract, owner, usdc_contract, us
         token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
     created = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuCreated"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "PasanakuCreated"
     ]
     assert len(created) == 1
     assert created[0].token_id == token_id
@@ -94,7 +96,9 @@ def test_join_insufficient_collateral_reverts(
         pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
     )
     with boa.env.prank(users[0]):
-        pending_idx = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
+        pending_idx = create_pasanaku(
+            pasanaku_contract, usdc_contract.address, amount_raw
+        )
 
     u = users[1]
     with boa.env.prank(owner):
@@ -133,7 +137,9 @@ def test_join_emits_event(pasanaku_contract, owner, usdc_contract, users):
         pasanaku_contract.join_pasanaku(token_id)
 
     joined = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuJoined"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "PasanakuJoined"
     ]
     assert len(joined) == 1
     assert joined[0].token_id == token_id
@@ -204,7 +210,9 @@ def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral
         pasanaku_contract.leave_pasanaku(token_id)
 
     left = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuLeft"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "PasanakuLeft"
     ]
     assert any(log.account == leaver for log in left)
 

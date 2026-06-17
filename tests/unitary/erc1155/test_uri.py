@@ -11,7 +11,11 @@ from tests.utils.constants import (
     URI_PENDING,
     URI_STALE,
 )
-from tests.utils.helpers import create_pasanaku, deposit_all_obligors, fund_collateral_for_users
+from tests.utils.helpers import (
+    create_pasanaku,
+    deposit_all_obligors,
+    fund_collateral_for_users,
+)
 
 
 def test_uri_unknown_token_not_created(pasanaku_contract):

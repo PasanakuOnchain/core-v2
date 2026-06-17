@@ -23,7 +23,11 @@ def test_add_collateral_emits_event(pasanaku_contract, owner, usdc_contract, use
         usdc_contract.approve(pasanaku_contract.address, amount)
         pasanaku_contract.add_collateral(usdc_contract.address, amount)
 
-    added = [log for log in pasanaku_contract.get_logs() if type(log).__name__ == "CollateralAdded"]
+    added = [
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "CollateralAdded"
+    ]
     assert len(added) == 1
     assert added[0].account == participant
     assert added[0].asset == usdc_contract.address
@@ -79,8 +83,13 @@ def test_withdraw_collateral_happy_path_partial(
         pasanaku_contract.add_collateral(usdc_contract.address, total)
         create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
 
-    assert pasanaku_contract.collateral_in_use(participant, usdc_contract.address) == locked
-    assert pasanaku_contract.free_collateral(participant, usdc_contract.address) == extra
+    assert (
+        pasanaku_contract.collateral_in_use(participant, usdc_contract.address)
+        == locked
+    )
+    assert (
+        pasanaku_contract.free_collateral(participant, usdc_contract.address) == extra
+    )
 
     pre_balance = usdc_contract.balanceOf(participant)
     with boa.env.prank(participant):
@@ -131,7 +140,9 @@ def test_withdraw_collateral_emits_event(
         pasanaku_contract.withdraw_collateral(usdc_contract.address, amount)
 
     withdrawn = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "CollateralWithdrawn"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "CollateralWithdrawn"
     ]
     assert len(withdrawn) == 1
     assert withdrawn[0].account == participant

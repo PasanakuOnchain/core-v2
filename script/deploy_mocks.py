@@ -1,30 +1,16 @@
 from typing import List
-from tests.mocks import erc20_mock
+
 from moccasin.boa_tools import VyperContract
+
+from tests.mocks import erc20_mock
 
 mock_tokens = [
     {
-        "name": "USD Coin",
-        "symbol": "USDC",
-        "decimals": 6,
-        "initial_supply": int(10_000 * 10**6),
-        "name_eip712": "fake-usdc",
-        "version_eip712": "1",
-    },
-    {
-        "name": "Tether",
-        "symbol": "USDT",
-        "decimals": 6,
-        "initial_supply": int(10_000 * 10**6),
-        "name_eip712": "fake-usdt",
-        "version_eip712": "1",
-    },
-    {
-        "name": "Wrapped Ether",
-        "symbol": "WETH",
+        "name": "DAI",
+        "symbol": "DAI",
         "decimals": 18,
         "initial_supply": int(10_000 * 10**18),
-        "name_eip712": "fake-weth",
+        "name_eip712": "fake-dai",
         "version_eip712": "1",
     },
 ]

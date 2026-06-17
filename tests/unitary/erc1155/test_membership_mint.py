@@ -1,11 +1,17 @@
 import boa
 
 from tests.utils.constants import PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW, TOKEN_AMOUNT
-from tests.utils.helpers import create_and_join_all, create_pasanaku, fund_collateral_for_users
+from tests.utils.helpers import (
+    create_and_join_all,
+    create_pasanaku,
+    fund_collateral_for_users,
+)
 from tests.mocks import noop_contract
 
 
-def test_membership_not_minted_before_start(pasanaku_contract, owner, usdc_contract, users):
+def test_membership_not_minted_before_start(
+    pasanaku_contract, owner, usdc_contract, users
+):
     """Pre-start: no balances, no supply, token does not exist."""
     fund_collateral_for_users(
         pasanaku_contract, usdc_contract, owner, users[:2], PASANAKU_AMOUNT_RAW
@@ -45,7 +51,9 @@ def test_membership_mint_emits_transfer_single_logs(
     token_id = 0
 
     transfer_logs = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "TransferSingle"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "TransferSingle"
     ]
     assert len(transfer_logs) == PARTICIPANT_COUNT
 

@@ -35,7 +35,9 @@ def test_second_active_pasanaku_same_asset_starts(
         amount_raw,
     )
     with boa.env.prank(users[PARTICIPANT_COUNT]):
-        pending_idx = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
+        pending_idx = create_pasanaku(
+            pasanaku_contract, usdc_contract.address, amount_raw
+        )
     for u in users[PARTICIPANT_COUNT + 1 : PARTICIPANT_COUNT * 2 - 1]:
         with boa.env.prank(u):
             pasanaku_contract.join_pasanaku(pending_idx)

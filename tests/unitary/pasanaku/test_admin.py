@@ -18,7 +18,9 @@ def test_set_stale_time_owner_updates(pasanaku_contract, owner):
         pasanaku_contract.set_stale_time(DAYS_3)
 
     stale_logs = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "StaleTimeSet"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "StaleTimeSet"
     ]
     assert len(stale_logs) == 1
     assert stale_logs[0].days == DAYS_3

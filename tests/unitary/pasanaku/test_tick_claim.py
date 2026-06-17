@@ -58,7 +58,9 @@ def test_tick_emits_pasanaku_ticked(
     pasanaku_contract.tick(tid)
 
     ticked = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "PasanakuTicked"
+        log
+        for log in pasanaku_contract.get_logs()
+        if type(log).__name__ == "PasanakuTicked"
     ]
     assert len(ticked) == 1
     assert ticked[0].token_id == tid
@@ -143,14 +145,14 @@ def test_non_payer_slash_penalty_to_owner_not_eligibles(
     pasanaku_contract.tick(tid)
     tick_logs = pasanaku_contract.get_logs()
     pen = penalty_per_amount(amount_raw)
-    penalties = [
-        log for log in tick_logs if type(log).__name__ == "PasanakuPenalties"
-    ]
+    penalties = [log for log in tick_logs if type(log).__name__ == "PasanakuPenalties"]
     assert len(penalties) == 1
     assert penalties[0].amount == pen
 
     assert usdc_contract.balanceOf(recipient) == pre_recipient  # claim not yet called
-    assert pasanaku_contract.pending_payout(tid, 0) == amount_raw * (PARTICIPANT_COUNT - 1)
+    assert pasanaku_contract.pending_payout(tid, 0) == amount_raw * (
+        PARTICIPANT_COUNT - 1
+    )
 
     with boa.env.prank(recipient):
         pasanaku_contract.claim_round_payout(tid, 0)
@@ -360,9 +362,7 @@ def test_claim_round_payout_only_recipient(
             pasanaku_contract.claim_round_payout(tid, 0)
 
 
-def test_claim_round_payout_zero_pending_reverts(
-    pasanaku_contract, started_pasanaku
-):
+def test_claim_round_payout_zero_pending_reverts(pasanaku_contract, started_pasanaku):
     tid = started_pasanaku["token_id"]
     recipient = started_pasanaku["users"][0]
     with boa.reverts():
