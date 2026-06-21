@@ -6,10 +6,34 @@ from tests.mocks import erc20_mock
 
 mock_tokens = [
     {
+        "name": "USD Coin",
+        "symbol": "USDC",
+        "decimals": 6,
+        "initial_supply": int(10_000),
+        "name_eip712": "fake-usdc",
+        "version_eip712": "1",
+    },
+    {
+        "name": "Tether",
+        "symbol": "USDT",
+        "decimals": 6,
+        "initial_supply": int(10_000),
+        "name_eip712": "fake-usdt",
+        "version_eip712": "1",
+    },
+    {
+        "name": "Wrapped Ether",
+        "symbol": "WETH",
+        "decimals": 18,
+        "initial_supply": int(10_000),
+        "name_eip712": "fake-weth",
+        "version_eip712": "1",
+    },
+    {
         "name": "DAI",
         "symbol": "DAI",
         "decimals": 18,
-        "initial_supply": int(10_000 * 10**18),
+        "initial_supply": int(10_000),
         "name_eip712": "fake-dai",
         "version_eip712": "1",
     },
