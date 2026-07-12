@@ -30,6 +30,7 @@ flowchart LR
         Collateral[collateral ledger]
         Escrow[pool_escrow per token_id]
         Payout[pending_payout ledger]
+        Penalties[pending_penalties per asset]
     end
 
     subgraph treasury [Protocol treasury]
@@ -43,7 +44,8 @@ flowchart LR
     Ticker -->|tick| contract
     contract -->|accrue| Payout
     Recipient -->|claim_round_payout| Recipient
-    contract -->|miss penalties ERC20| Owner
+    contract -->|accrue miss penalties| Penalties
+    Penalties -->|claim_penalties| Owner
     Creator -->|create fee ETH| contract
     Owner -->|collect_fees| Owner
 ```
@@ -52,7 +54,7 @@ flowchart LR
 |-------|------|----------------|
 | **Participant** | Collateral, create/join, deposit, claim | Contract math and ERC20 |
 | **Permissionless tick caller** | Advances rounds after 40 days | None — public function |
-| **Owner** | Receives penalties and ETH fees; sets fee and stale time | Does not control tick or payouts |
+| **Owner** | Receives penalties (via `claim_penalties`) and ETH fees; sets fee and stale time | Does not control tick or payouts |
 | **Recipient** | Must actively claim each round payout | Contract will hold until claim |
 
 For contract-internal step order, see [protocol-flow.md](../protocol-flow.md).
@@ -73,11 +75,12 @@ flowchart TB
         Pledge[collateral_in_use — pledge per pool]
         Escrow[pool_escrow — round deposits and slash credits]
         Pending[pending_payout — accrued principal]
+        PendingPen[pending_penalties — accrued miss penalties]
     end
 
     subgraph outbound [Outbound]
         Claim[claim_round_payout — ERC20 to recipient]
-        Penalty[miss penalty — ERC20 to owner]
+        Penalty[claim_penalties — ERC20 to owner]
         Withdraw[withdraw_collateral — free ERC20 out]
         Unlock[end pool — pledge released]
         EthOut[collect_fees — ETH to owner]
@@ -87,15 +90,16 @@ flowchart TB
     CreateFee --> contract[(Pasanaku ETH balance)]
     Deposit --> Escrow
     Escrow -->|tick settle| Pending
-    Escrow -->|tick miss| Penalty
+    Escrow -->|tick miss| PendingPen
     Pledge -->|slash on miss| Escrow
     Pending --> Claim
+    PendingPen --> Penalty
     Pledge --> Unlock
     Pledge --> Withdraw
     contract --> EthOut
 ```
 
-**Collateral vs escrow:** Collateral backs obligations and absorbs slashes. Round deposits sit in `pool_escrow` until tick moves value to `pending_payout` or penalties.
+**Collateral vs escrow:** Collateral backs obligations and absorbs slashes. Round deposits sit in `pool_escrow` until tick moves value to `pending_payout` or `pending_penalties`.
 
 ## Key storage surfaces
 
@@ -105,6 +109,7 @@ flowchart TB
 | `_collateral_in_use[account][asset]` | Pledged portion per active pool |
 | `_pool_escrow[token_id]` | Per-pool ERC20 attribution |
 | `_pending_payout[token_id][round_idx]` | Accrued recipient principal |
+| `_pending_penalties[asset]` | Accrued miss penalties awaiting `claim_penalties` |
 | `_pasanakus[token_id]` | Pool struct (participants, index, timestamps) |
 
 ## Architecture decisions

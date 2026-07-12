@@ -219,9 +219,44 @@ def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral
     st = pasanaku_contract.pasanaku(token_id)
     assert len(st.participants) == 2
     assert leaver not in st.participants
-    assert set(st.participants) == set(remaining)
+    assert list(st.participants) == remaining
     assert pasanaku_contract.collateral_in_use(leaver, usdc_contract.address) == 0
     assert pasanaku_contract.free_collateral(leaver, usdc_contract.address) == locked
+    for user in remaining:
+        assert (
+            pasanaku_contract.collateral_in_use(user, usdc_contract.address) == locked
+        )
+
+
+def test_leave_creator_preserves_remaining_join_order(
+    pasanaku_contract, owner, usdc_contract, users
+):
+    """Creator (index 0) leave must shift remaining down — not swap last into index 0."""
+    amount_raw = PASANAKU_AMOUNT_RAW
+    locked = pledge(amount_raw)
+    users = users[:3]
+    creator = users[0]
+    remaining = [users[1], users[2]]
+
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
+    fund_collateral_for_users(
+        pasanaku_contract, usdc_contract, owner, users, amount_raw
+    )
+    with boa.env.prank(creator):
+        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
+    for user in users[1:]:
+        with boa.env.prank(user):
+            pasanaku_contract.join_pasanaku(token_id)
+
+    boa.env.time_travel(seconds=DAYS_3)
+    with boa.env.prank(creator):
+        pasanaku_contract.leave_pasanaku(token_id)
+
+    st = pasanaku_contract.pasanaku(token_id)
+    assert list(st.participants) == remaining
+    assert pasanaku_contract.collateral_in_use(creator, usdc_contract.address) == 0
+    assert pasanaku_contract.free_collateral(creator, usdc_contract.address) == locked
     for user in remaining:
         assert (
             pasanaku_contract.collateral_in_use(user, usdc_contract.address) == locked

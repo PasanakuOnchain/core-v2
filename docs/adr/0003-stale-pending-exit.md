@@ -14,7 +14,7 @@ Without an exit valve, capital stays pledged indefinitely on abandoned pools. A 
 After `created + stale_time`, any participant in a still-pending pool may call `leave_pasanaku(token_id)`:
 
 - Unlocks that participant’s pledged collateral via `_unlock_participant_collateral_in_use`.
-- Removes them from `pasanaku.participants`.
+- Removes them from `pasanaku.participants` via `_remove_from_array`, which **shifts subsequent members down** so remaining participants keep their relative join order (not swap-with-last).
 - Emits `PasanakuLeft`.
 
 `stale_time` defaults to **7 days** at deploy. Owner may set **3 to 7 days** via `set_stale_time`. ERC-1155 `uri()` exposes a **stale** metadata state when the window has elapsed.

@@ -17,8 +17,9 @@ Protocol summary:
       all other participants must deposit pasanaku.amount for that k (recipient exempt).
     • Each tick (after _DAYS_40): permissionless settle round k — recipient receives
       (N-1)*amount in principal. Non-recipients who did not deposit lose amount plus a miss
-      penalty (bps) from _collateral; principal still credits the payout. Penalty ERC20 goes
-      to owner() (treasury); `PasanakuPenalties` logs the amount.
+      penalty (bps) from _collateral; principal still credits the payout. Miss penalties accrue
+      to `_pending_penalties` (claimed later via `claim_penalties`); `PasanakuPenalties` logs
+      the accrued amount on tick.
     • Obligor deposits: underlying ERC20 is held on-contract as escrow until tick pays the
       round recipient.
     • active_pasanaku_by_asset is a counter of started, not-yet-ended pools per asset (not a
@@ -133,6 +134,12 @@ event PasanakuPenalties:
     amount: uint256
 
 
+event PenaltiesClaimed:
+    asset: indexed(address)
+    owner: indexed(address)
+    amount: uint256
+
+
 event PasanakuEnded:
     token_id: indexed(uint256)
     asset: indexed(address)
@@ -187,6 +194,7 @@ _active_pasanaku_by_asset: HashMap[address, uint256]
 _stale_time: uint256
 _pool_escrow: HashMap[uint256, uint256]
 _pending_payout: HashMap[uint256, HashMap[uint256, uint256]]  # token_id -> round_idx -> amount # nosplit
+_pending_penalties: HashMap[address, uint256]  # asset -> accrued miss penalties
 _fee: uint256
 
 @deploy
@@ -419,6 +427,20 @@ def claim_round_payout(token_id: uint256, round_idx: uint256):
 
 
 @external
+@nonreentrant
+def claim_penalties(asset: address):
+    amount: uint256 = self._pending_penalties[asset]
+    assert amount > 0  # dev: no pending penalties
+    fee_sink: address = ow.owner
+    self._pending_penalties[asset] = 0
+    success: bool = extcall IERC20(asset).transfer(
+        fee_sink, amount, default_return_value=True
+    )
+    assert success  # dev: penalty claim transfer failed
+    log PenaltiesClaimed(asset=asset, owner=fee_sink, amount=amount)
+
+
+@external
 def set_fee(fee: uint256):
     ow._check_owner()
     assert fee >= _MIN_FEE  # dev: fee is out of range
@@ -564,6 +586,12 @@ def pool_escrow(token_id: uint256) -> uint256:
 @view
 def pending_payout(token_id: uint256, round_idx: uint256) -> uint256:
     return self._pending_payout[token_id][round_idx]
+
+
+@external
+@view
+def pending_penalties(asset: address) -> uint256:
+    return self._pending_penalties[asset]
 
 
 @external
@@ -715,10 +743,7 @@ def _distribute_penalties(
     fee_sink: address = ow.owner
     assert self._pool_escrow[token_id] >= penalty_pool
     self._pool_escrow[token_id] -= penalty_pool
-    success: bool = extcall IERC20(asset).transfer(
-        fee_sink, penalty_pool, default_return_value=True
-    )
-    assert success  # dev: penalty transfer failed
+    self._pending_penalties[asset] += penalty_pool
     log PasanakuPenalties(
         token_id=token_id,
         tick_index=round_idx,
@@ -748,14 +773,17 @@ def _remove_from_array(
     assert length > 0  # dev: empty participants
 
     found: bool = False
-    last_idx: uint256 = length - 1
-    temp: address = participants[last_idx]
+    remove_idx: uint256 = 0
     for i: uint256 in range(length, bound=_PARTICIPANT_COUNT):
         if participants[i] == target:
-            participants[i] = temp
+            remove_idx = i
             found = True
             break
 
     assert found  # dev: participant not in pasanaku
+
+    for j: uint256 in range(remove_idx, length - 1, bound=_PARTICIPANT_COUNT):
+        participants[j] = participants[j + 1]
+
     participants.pop()
     return participants

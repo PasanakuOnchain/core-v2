@@ -10,6 +10,7 @@ flowchart TD
     pendingCheck -->|no| staleCheck{created + stale_time elapsed?}
     staleCheck -->|yes| leavePool[leave_pasanaku]
     leavePool --> unlockLeave["_unlock_participant_collateral_in_use"]
+    leavePool --> removeOrder["_remove_from_array: shift-down, preserve order"]
     staleCheck -->|no| pendingWait[wait for joins or stale window]
     pendingWait --> pendingCheck
     pendingCheck -->|yes| startPool["_start_pasanaku when 10 members"]
@@ -20,8 +21,9 @@ flowchart TD
     settleRound --> poolEscrowSlash["pool_escrow += slash_total on miss"]
     settleRound --> accrue["_accrue_recipient_payout → pending_payout"]
     accrue --> poolEscrowDebit["pool_escrow -= payout"]
-    tick --> penalties["_distribute_penalties to owner"]
+    tick --> penalties["_distribute_penalties → pending_penalties"]
     penalties --> poolEscrowPenalty["pool_escrow -= penalty_pool"]
+    penalties --> claimPen[claim_penalties]
     accrue --> claim[claim_round_payout]
     tick --> endPool[PasanakuEnded after round 9]
     endPool --> unlock["_unlock_collateral_in_use"]
@@ -37,6 +39,7 @@ flowchart TD
 | `created + stale_time elapsed?` | Pending pool age check; `stale_time` is 3–7 days (default 7), owner-configurable via `set_stale_time` |
 | `leave_pasanaku` | `leave_pasanaku(token_id)` — participant exits stale pending pool; emits `PasanakuLeft` |
 | `_unlock_participant_collateral_in_use` | Internal — release one participant’s pledge on leave |
+| `_remove_from_array: shift-down, preserve order` | Internal — removes leaver and shifts subsequent members down (preserves relative join order; not swap-with-last) |
 | `_start_pasanaku when 10 members` | Internal start on tenth join; mints ERC1155 membership via `_mint_membership_token` |
 | `deposit_to_pasanaku per round` | `deposit_to_pasanaku(amount, token_id)` — obligor escrow |
 | `pool_escrow += amount` | `_pool_escrow[token_id]` credited after successful `transferFrom` |
@@ -44,7 +47,8 @@ flowchart TD
 | `_settle_round` | Internal — credit recipient payout, slash misses |
 | `pool_escrow += slash_total on miss` | Miss branch credits principal + penalty to per-pool ledger |
 | `_accrue_recipient_payout → pending_payout` | Internal — debit `pool_escrow`, accrue `pending_payout[token_id][round_idx]` |
-| `_distribute_penalties to owner` | Internal — debit `pool_escrow`, transfer miss penalties to `owner()` |
+| `_distribute_penalties → pending_penalties` | Internal — debit `pool_escrow`, accrue `_pending_penalties[asset]`; logs `PasanakuPenalties` (no ERC20 transfer to owner on tick) |
+| `claim_penalties` | Permissionless `claim_penalties(asset)` — transfers accrued penalties to current `owner()`; emits `PenaltiesClaimed`. View: `pending_penalties(asset)` |
 | `claim_round_payout` | `claim_round_payout(token_id, round_idx)` — recipient pulls accrued ERC20 |
 | `PasanakuEnded after round 9` | Final tick when `round_idx == N-1` (9) |
 | `_unlock_collateral_in_use` | Internal — release pledged collateral per participant |

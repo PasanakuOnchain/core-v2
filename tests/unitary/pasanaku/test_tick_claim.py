@@ -117,12 +117,13 @@ def test_last_tick_ends_and_uri(
 def test_non_payer_slash_penalty_to_owner_not_eligibles(
     pasanaku_contract, owner, usdc_contract, users, started_pasanaku
 ):
-    """Single defaulter: full penalty_pool goes to owner(); eligibles' USDC unchanged by penalty."""
+    """Single defaulter: penalties accrue then claim_penalties pays owner(); eligibles unchanged."""
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
     defaulter = users[1]
     recipient = users[0]
+    asset = usdc_contract.address
 
     for u in users:
         if u == recipient or u == defaulter:
@@ -149,6 +150,9 @@ def test_non_payer_slash_penalty_to_owner_not_eligibles(
     assert len(penalties) == 1
     assert penalties[0].amount == pen
 
+    assert usdc_contract.balanceOf(owner) == owner_pre
+    assert pasanaku_contract.pending_penalties(asset) == pen
+
     assert usdc_contract.balanceOf(recipient) == pre_recipient  # claim not yet called
     assert pasanaku_contract.pending_payout(tid, 0) == amount_raw * (
         PARTICIPANT_COUNT - 1
@@ -160,7 +164,9 @@ def test_non_payer_slash_penalty_to_owner_not_eligibles(
     assert usdc_contract.balanceOf(recipient) == pre_recipient + amount_raw * (
         PARTICIPANT_COUNT - 1
     )
+    pasanaku_contract.claim_penalties(asset)
     assert usdc_contract.balanceOf(owner) == owner_pre + pen
+    assert pasanaku_contract.pending_penalties(asset) == 0
     assert (
         pasanaku_contract.collateral(defaulter, usdc_contract.address)
         == pre_collateral - slash_total
@@ -191,10 +197,11 @@ def test_happy_path_collateral_in_use_zero_after_end(
 def test_all_obligated_nonrecipients_default_penalty_to_owner(
     pasanaku_contract, owner, usdc_contract, users, started_pasanaku
 ):
-    """Nobody deposits; recipient exempt — full penalty_pool to owner()."""
+    """Nobody deposits; recipient exempt — full penalty_pool accrues then claimable by owner."""
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
+    asset = usdc_contract.address
     owner_pre = usdc_contract.balanceOf(owner)
     pen_total = penalty_per_amount(amount_raw) * (PARTICIPANT_COUNT - 1)
     expected_payout = amount_raw * (PARTICIPANT_COUNT - 1)
@@ -202,7 +209,11 @@ def test_all_obligated_nonrecipients_default_penalty_to_owner(
     boa.env.time_travel(seconds=DAYS_40)
     pasanaku_contract.tick(tid)
 
+    assert usdc_contract.balanceOf(owner) == owner_pre
+    assert pasanaku_contract.pending_penalties(asset) == pen_total
+    pasanaku_contract.claim_penalties(asset)
     assert usdc_contract.balanceOf(owner) == owner_pre + pen_total
+    assert pasanaku_contract.pending_penalties(asset) == 0
     assert pasanaku_contract.pending_payout(tid, 0) == expected_payout
     recipient = users[0]
     for u in users:
@@ -214,10 +225,11 @@ def test_all_obligated_nonrecipients_default_penalty_to_owner(
 def test_penalties_all_to_owner_when_eligibles_exist(
     pasanaku_contract, owner, usdc_contract, users, started_pasanaku
 ):
-    """Round 0 all obligors pay; round 1 one defaulter — full penalty on that round to owner()."""
+    """Round 0 all obligors pay; round 1 one defaulter — penalty accrues then claimable."""
     tid = started_pasanaku["token_id"]
     amount_raw = started_pasanaku["amount_raw"]
     users = started_pasanaku["users"]
+    asset = usdc_contract.address
 
     for round_idx in range(2):
         recipient = users[round_idx]
@@ -239,7 +251,11 @@ def test_penalties_all_to_owner_when_eligibles_exist(
     owner_pre = usdc_contract.balanceOf(owner)
     pasanaku_contract.tick(tid)
 
+    assert usdc_contract.balanceOf(owner) == owner_pre
+    assert pasanaku_contract.pending_penalties(asset) == pen
+    pasanaku_contract.claim_penalties(asset)
     assert usdc_contract.balanceOf(owner) == owner_pre + pen
+    assert pasanaku_contract.pending_penalties(asset) == 0
 
 
 def test_tick_decreases_contract_escrow_by_payout(
@@ -301,6 +317,7 @@ def test_penalty_transfer_reaches_owner(
     users = started_pasanaku["users"]
     defaulter = users[1]
     recipient = users[0]
+    asset = usdc_contract.address
 
     for u in users:
         if u == recipient or u == defaulter:
@@ -316,7 +333,49 @@ def test_penalty_transfer_reaches_owner(
     tick_and_claim(pasanaku_contract, tid, 0, users)
 
     pen = penalty_per_amount(amount_raw)
+    assert usdc_contract.balanceOf(owner) == owner_pre
+    assert pasanaku_contract.pending_penalties(asset) == pen
+    pasanaku_contract.claim_penalties(asset)
     assert usdc_contract.balanceOf(owner) == owner_pre + pen
+    assert pasanaku_contract.pending_penalties(asset) == 0
+
+
+def test_tick_with_miss_succeeds_after_renounce_ownership(
+    pasanaku_contract, owner, usdc_contract, started_pasanaku
+):
+    """After renounce, miss penalties accrue without freezing tick; claim to zero may fail."""
+    tid = started_pasanaku["token_id"]
+    amount_raw = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    defaulter = users[1]
+    recipient = users[0]
+    asset = usdc_contract.address
+
+    for u in users:
+        if u == recipient or u == defaulter:
+            continue
+        with boa.env.prank(owner):
+            usdc_contract.mint(u, amount_raw)
+        with boa.env.prank(u):
+            usdc_contract.approve(pasanaku_contract.address, amount_raw)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
+
+    with boa.env.prank(owner):
+        pasanaku_contract.renounce_ownership()
+
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(tid)
+
+    st = pasanaku_contract.pasanaku(tid)
+    assert st.index == 1
+    pen = penalty_per_amount(amount_raw)
+    assert pasanaku_contract.pending_penalties(asset) == pen
+
+    with boa.reverts():
+        pasanaku_contract.claim_penalties(asset)
+
+    assert pasanaku_contract.pending_penalties(asset) == pen
+    assert st.index == 1
 
 
 def test_tick_advances_without_claim(

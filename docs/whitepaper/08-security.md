@@ -14,8 +14,8 @@ Pasanaku aims to provide:
 | Party | Can do | Cannot do |
 |-------|--------|-----------|
 | **Participants** | Collateral, create/join, deposit, claim, leave stale pending | Change others’ payouts; tick early |
-| **Any address** | `tick` after window | Set fees, collect ETH, alter stale time |
-| **Owner** | `set_fee`, `set_stale_time`, `collect_fees`; receives penalties | Force tick; redirect recipient payouts; pause |
+| **Any address** | `tick` after window; `claim_penalties` | Set fees, collect ETH, alter stale time |
+| **Owner** | `set_fee`, `set_stale_time`, `collect_fees`; receives penalties via `claim_penalties` | Force tick; redirect recipient payouts; pause |
 
 ## Threat model
 
@@ -37,7 +37,7 @@ Only standard transfer semantics. Fee-on-transfer or rebasing tokens can desync 
 
 ### Pull-claim UX
 
-Recipients who never call `claim_round_payout` leave principal in the contract. Funds are not lost, but UX depends on wallets prompting claims.
+Recipients who never call `claim_round_payout` leave principal in the contract. Miss penalties similarly accrue until someone calls `claim_penalties`. Funds are not lost, but UX depends on wallets prompting claims.
 
 ### Stale pending abandonment
 
@@ -49,7 +49,7 @@ Preserved by the Titanoboa test suite:
 
 - `pledge(amount)` matches `_pledge` / `pledge()` view.
 - Successful tick accrues `(N - 1) × amount` to `pending_payout`.
-- Missed obligor: slash `amount + penalty`, penalties to treasury, recipient credited `amount`.
+- Missed obligor: slash `amount + penalty`, penalties accrue to `pending_penalties` (claimable to treasury), recipient credited `amount`.
 - Only free collateral is withdrawable while `collateral_in_use > 0`.
 - `active_pasanaku_for_asset` increments on start, decrements on end; no hard cap at 1.
 

@@ -41,7 +41,7 @@ The first term covers ten round obligations; the second is penalty headroom for 
 If an obligor did not deposit before tick:
 
 1. **Principal** `amount` is slashed from their collateral and credited toward the recipient payout.
-2. **Penalty** `amount × 5 / 10000` is slashed and sent to `owner()`.
+2. **Penalty** `amount × 5 / 10000` is slashed and accrued to `pending_penalties(asset)` (anyone may later call `claim_penalties(asset)` to transfer to current `owner()`).
 3. The recipient still receives full `amount` credit for that obligor — penalties do not reduce recipient principal.
 
 ## Worked example (USDC, 6 decimals)
@@ -53,7 +53,7 @@ If an obligor did not deposit before tick:
 | Per-round obligor deposit | 100 USDC |
 | Recipient payout (full round) | 900 USDC |
 | Pledge lock | 1,000 USDC + 0.5 USDC penalty reserve |
-| One miss at tick | Recipient gets 100 USDC from slash; 0.05 USDC penalty to treasury |
+| One miss at tick | Recipient gets 100 USDC from slash; 0.05 USDC penalty accrues for later `claim_penalties` |
 
 Over ten rounds, each participant pays nine obligor deposits and receives one recipient payout (900 USDC in this example), net of any collateral slashes.
 

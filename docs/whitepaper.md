@@ -34,11 +34,11 @@ Pasanaku is **trust minimized**, not “100% trustless”: a protocol treasury (
 2. **Create or join** — `create_pasanaku(asset, amount)` (payable, optional ETH fee) or `join_pasanaku(token_id)`. Each action locks `pledge(amount)` in `collateral_in_use`.
 3. **Auto-start** — When the tenth member joins, the pool starts, membership is fixed, and soulbound ERC-1155 receipts are minted.
 4. **Ten rounds** — For round index `k`, recipient `participants[k]` does not deposit; the other nine each transfer exactly `amount` via `deposit_to_pasanaku`.
-5. **Settle** — After `updated + 40 days`, anyone may call `tick`. The recipient is credited `(N - 1) × amount` principal; misses slash collateral and route penalties to treasury.
+5. **Settle** — After `updated + 40 days`, anyone may call `tick`. The recipient is credited `(N - 1) × amount` principal; misses slash collateral and accrue penalties to `pending_penalties` (later claimed via `claim_penalties`).
 6. **Claim** — The recipient calls `claim_round_payout(token_id, k)` to receive accrued ERC20.
 7. **End** — After round 9 settles, pledged collateral unlocks (net of prior slashes).
 
-**Stale pending pools:** If a pool never reaches ten members before `created + stale_time`, any participant may `leave_pasanaku` to unlock their pledge and exit.
+**Stale pending pools:** If a pool never reaches ten members before `created + stale_time`, any participant may `leave_pasanaku` to unlock their pledge and exit. Removal preserves relative join order of remaining participants.
 
 Honest participation is cheaper than defaulting: collateral covers missed principal plus a penalty, while the recipient still receives full credit for each obligor slot.
 
@@ -56,8 +56,9 @@ flowchart TB
     Pool --> Deposits[Round deposits in pool_escrow]
     Deposits --> Tick[Permissionless tick after 40 days]
     Tick --> Payout[pending_payout to recipient]
-    Tick --> Penalty[Miss penalties to treasury]
+    Tick --> Penalty[Miss penalties to pending_penalties]
     Payout --> Claim[claim_round_payout]
+    Penalty --> ClaimPen[claim_penalties to owner]
     Pool --> NFT[Soulbound ERC1155 membership receipt]
 ```
 
@@ -66,8 +67,8 @@ flowchart TB
 | Actor | Role |
 |-------|------|
 | **Participant** | Collateral, create/join, deposit, claim, leave stale pending |
-| **Permissionless caller** | `tick` after the 40-day window |
-| **Owner** | Receives ETH creation fees and ERC20 miss penalties; configures `set_fee` and `set_stale_time` — does not operate rounds |
+| **Permissionless caller** | `tick` after the 40-day window; `claim_penalties` |
+| **Owner** | Receives ETH creation fees and ERC20 miss penalties (via `claim_penalties`); configures `set_fee` and `set_stale_time` — does not operate rounds |
 
 ```mermaid
 flowchart LR
@@ -86,6 +87,7 @@ flowchart LR
         Collateral[collateral ledger]
         Escrow[pool_escrow per token_id]
         Payout[pending_payout ledger]
+        Penalties[pending_penalties per asset]
     end
 
     subgraph treasury [Treasury]
@@ -99,7 +101,8 @@ flowchart LR
     Ticker -->|tick| contract
     contract -->|accrue| Payout
     Recipient -->|claim_round_payout| Recipient
-    contract -->|miss penalties ERC20| Owner
+    contract -->|accrue miss penalties| Penalties
+    Penalties -->|claim_penalties| Owner
     Owner -->|collect_fees| Owner
 ```
 
@@ -127,7 +130,7 @@ For step-by-step contract internals, see [protocol-flow.md](protocol-flow.md).
 | Per-round obligor deposit | 100 USDC |
 | Recipient payout (full round) | 900 USDC |
 | Pledge lock | 1,000 USDC + 0.5 USDC penalty reserve |
-| One miss at tick | Recipient gets 100 USDC from slash; 0.05 USDC penalty to treasury |
+| One miss at tick | Recipient gets 100 USDC from slash; 0.05 USDC penalty accrues for later `claim_penalties` |
 
 Over ten rounds each participant pays nine obligor deposits and receives one recipient payout (900 USDC in this example), net of any collateral slashes.
 
@@ -153,12 +156,12 @@ Two revenue streams are implemented in core-v2; both flow to `owner()` today.
 
 ### Miss penalty (ERC20)
 
-When an obligor misses a deposit at tick, `amount × 5 / 10000` is slashed and sent to `owner()` via `_distribute_penalties` (logged in `PasanakuPenalties`).
+When an obligor misses a deposit at tick, `amount × 5 / 10000` is slashed and accrued to `pending_penalties(asset)` via `_distribute_penalties` (logged in `PasanakuPenalties`). Anyone may later call `claim_penalties(asset)` to transfer to current `owner()` (emits `PenaltiesClaimed`). `tick` does not ERC20-transfer penalties.
 
 | Source | Asset | Recipient |
 |--------|-------|-----------|
 | Pool creation | ETH | `owner()` via `collect_fees()` |
-| Missed deposits | Pool ERC20 | `owner()` on tick |
+| Missed deposits | Pool ERC20 | Accrue on tick; `owner()` via `claim_penalties(asset)` |
 
 ---
 
@@ -168,7 +171,7 @@ When an obligor misses a deposit at tick, `amount × 5 / 10000` is slashed and s
 
 Core-v2 uses **Ownable two-step admin**:
 
-- `owner()` is the protocol treasury — receives ETH creation fees and ERC20 miss penalties.
+- `owner()` is the protocol treasury — receives ETH creation fees and ERC20 miss penalties (via `claim_penalties`).
 - Owner may call `set_fee`, `set_stale_time`, and `collect_fees`.
 - Owner **cannot** force-settle rounds, redirect recipient payouts, pause pools, or upgrade the contract.
 - Round advancement remains **permissionless** via `tick`.
@@ -198,7 +201,7 @@ A future **NAKU** governance token may:
 
 - Not safe for arbitrary ERC20s — fee-on-transfer and rebasing tokens can break accounting.
 - Not protected by admin circuit breakers — no pause, force-settle, or emergency override.
-- Not push payouts — recipients must `claim_round_payout`; unclaimed principal remains on the contract.
+- Not push payouts — recipients must `claim_round_payout`; unclaimed principal remains on the contract. Miss penalties similarly accrue until `claim_penalties`.
 - Not automatic stale refunds — each participant must call `leave_pasanaku` individually.
 
 Key invariants are enforced by the Titanoboa test suite (`mox test`). See [README.md](../README.md) — Security assumptions and Invariant-first testing.

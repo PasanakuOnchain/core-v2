@@ -18,6 +18,7 @@ If the pool never reaches ten members before `created + stale_time`:
 
 - Pool becomes **stale** (default stale window: 7 days; owner may set 3–7 days via `set_stale_time`).
 - Any participant may call `leave_pasanaku(token_id)` to unlock their pledge and leave.
+- Removal preserves relative join order of remaining participants (shift-down, not swap-with-last).
 - Emits `PasanakuLeft`. Remaining participants can still join if the pool is not abandoned entirely.
 
 See [ADR-0003: Stale pending exit](../adr/0003-stale-pending-exit.md).
@@ -43,7 +44,7 @@ For round index `k` (0 … 9):
 | **Anyone** | After `updated + 40 days`, call `tick(token_id)` |
 | **Recipient** | Call `claim_round_payout(token_id, k)` to receive accrued principal |
 
-Each tick settles round `k`, accrues `(N-1) × amount` to `pending_payout`, routes miss penalties to `owner()`, and advances `index`.
+Each tick settles round `k`, accrues `(N-1) × amount` to `pending_payout`, accrues miss penalties to `pending_penalties(asset)` (later claimed via permissionless `claim_penalties`), and advances `index`.
 
 ## Phase 5 — End and unlock
 

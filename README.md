@@ -13,12 +13,12 @@ A **pasanaku** is a fixed-membership pool over one supported ERC20:
 1. Participants pre-fund **collateral** per asset, then **create** or **join** a pool with a chosen per-round **amount** (raw token units, e.g. `100 * 10**6` for 100 USDC with 6 decimals).
 2. When the tenth member joins, the pool **starts** automatically. Membership is fixed; the ERC1155 receipt is a non-transferable membership record (minted without receiver callback, so contract-wallet participants are supported).
 3. For each round index `k` (0 … 9), one **recipient** receives principal from the other nine **obligors**. Obligors deposit exactly `amount` during the window; the recipient does not deposit that round.
-4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, accrue principal to `pending_payout`, advance the index, and route penalties to treasury.
+4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, accrue principal to `pending_payout`, advance the index, and accrue miss penalties to `pending_penalties` (later claimed via `claim_penalties`).
 5. After ten ticks, the pool **ends** and pledged collateral unlocks (minus any amounts already slashed during the pool).
 
 See [docs/protocol-flow.md](docs/protocol-flow.md) for a visual lifecycle and [docs/README.md](docs/README.md) for the full documentation index.
 
-Round deposits sit in per-pool escrow (`pool_escrow`) until tick accrues payout; the recipient claims via `claim_round_payout`. There is no external lending integration.
+Round deposits sit in per-pool escrow (`pool_escrow`) until tick accrues payout; the recipient claims via `claim_round_payout`. Miss penalties accrue on tick and are pulled via permissionless `claim_penalties`. There is no external lending integration.
 
 ## Pool creation fee (ETH)
 
@@ -35,7 +35,7 @@ The creation fee is separate from pool collateral (ERC20) and from miss penaltie
 
 A pool that never reaches ten members remains **pending** (`started == 0`). After `created + stale_time`, participants may exit:
 
-- `leave_pasanaku(token_id)` — unlocks that participant’s pledged collateral and removes them from the pool. Emits `PasanakuLeft`.
+- `leave_pasanaku(token_id)` — unlocks that participant’s pledged collateral and removes them from the pool, **preserving relative join order** of remaining members (shift-down, not swap-with-last). Emits `PasanakuLeft`.
 - `stale_time` is configurable by owner via `set_stale_time(days)` — **3 to 7 days** (default **7** at deploy).
 
 Integrators should surface stale eligibility and prompt participants to leave or recruit remaining members before the window closes.
@@ -50,7 +50,7 @@ Constants from the contract: `N = 10`, `MISS_PENALTY_BPS = 5` (0.05% of `amount`
 | Per-round obligor deposit          | `amount`                                                              | Exact ERC20 units each non-recipient must transfer for the current round     |
 | Recipient payout (successful tick) | `(N - 1) * amount`                                                    | Nine obligor principals, from per-pool escrow and/or slash                   |
 | Collateral lock per pool           | `pledge(amount) = amount * N + amount * N * MISS_PENALTY_BPS / 10000` | Locked on create/join; released after pool ends                              |
-| Miss penalty per obligor           | `amount * MISS_PENALTY_BPS / 10000`                                   | Taken from collateral if deposit missing at tick; sent to `owner()` treasury |
+| Miss penalty per obligor           | `amount * MISS_PENALTY_BPS / 10000`                                   | Taken from collateral if deposit missing at tick; accrues to `pending_penalties` until `claim_penalties` |
 
 
 **Example** (6-decimal USDC, `amount = 100_000_000` = 100 USDC):
@@ -58,7 +58,7 @@ Constants from the contract: `N = 10`, `MISS_PENALTY_BPS = 5` (0.05% of `amount`
 - Each obligor deposits `100` USDC per round when current.
 - Recipient receives `9 * 100 = 900` USDC principal on a fully funded round.
 - `pledge(100 USDC) = 1000 USDC + 0.5 USDC` penalty reserve (1000 principal + 0.05% × 1000 penalty headroom).
-- One missed deposit at tick: recipient still gets `amount` principal from that obligor’s slash; `0.05 USDC` penalty goes to treasury.
+- One missed deposit at tick: recipient still gets `amount` principal from that obligor’s slash; `0.05 USDC` penalty accrues for later `claim_penalties`.
 
 Penalties do not reduce the recipient’s principal target for that round; they are an extra sink on top of obligor collateral.
 
@@ -73,6 +73,12 @@ Penalties do not reduce the recipient’s principal target for that round; they 
 - `tick` settles the round and **accrues** principal to `pending_payout(token_id, round_idx)`; it does not push-transfer ERC20 to the recipient.
 - Only `participants[round_idx]` may call `claim_round_payout(token_id, round_idx)` to receive the accrued amount.
 - The pool index advances on `tick` even if the recipient has not claimed yet; unclaimed principal remains in `pending_payout` until claimed.
+
+## Miss penalty claim
+
+- `tick` accrues miss penalties to `pending_penalties(asset)` (logged via `PasanakuPenalties`); it does not ERC20-transfer penalties to `owner()`.
+- Anyone may call permissionless `claim_penalties(asset)` to transfer accrued penalties to the current `owner()` (emits `PenaltiesClaimed`).
+- View accrued balance with `pending_penalties(asset)`.
 
 ## Collateral and withdrawals
 
@@ -96,7 +102,7 @@ Integrators should not assume “one pool per token” unless a future version a
 
 `owner()` (two-step ownable) is the protocol treasury:
 
-- Receives **miss penalties** (ERC20) on each tick.
+- Receives **miss penalties** (ERC20) when anyone calls `claim_penalties(asset)` after tick accrual.
 - Receives **creation fees** (ETH) via `collect_fees()`.
 - May configure `set_fee` and `set_stale_time`.
 
@@ -143,7 +149,7 @@ Key invariants to preserve when changing code:
 
 - `pledge(amount)` matches `_pledge` / `pledge()` view.
 - Successful tick accrues `(N - 1) * amount` principal to `pending_payout`; `claim_round_payout` delivers it to the recipient.
-- Missed obligor: slash `amount + penalty_per`, penalties sum to treasury, recipient still credited `amount` for that obligor.
+- Missed obligor: slash `amount + penalty_per`, penalties accrue to `pending_penalties` (claimable to treasury), recipient still credited `amount` for that obligor.
 - Only free collateral is withdrawable while `collateral_in_use > 0`.
 - `active_pasanaku_for_asset` increments on start, decrements on end; no hard cap at 1.
 
@@ -170,7 +176,9 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 | `successful_obligated_deposits`                        | Historical deposit count per participant                              |
 | `pool_escrow(id)`                                      | Per-pool ERC20 attribution ledger                                     |
 | `pending_payout(id, round_idx)`                        | Accrued principal awaiting recipient claim                            |
+| `pending_penalties(asset)`                             | Accrued miss penalties awaiting `claim_penalties`                     |
 | `claim_round_payout(id, round_idx)`                    | Recipient pulls principal after tick (write)                          |
+| `claim_penalties(asset)`                               | Permissionless pull of accrued penalties to current `owner()` (write) |
 | `fee()`                                                | ETH required on `create_pasanaku` (0–0.001 ETH)                         |
 | `uri(id)`                                              | ERC-1155 metadata URI by pool state (pending/stale/ongoing/ended)     |
 
@@ -179,7 +187,7 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 
 - `PasanakuCreated`, `PasanakuJoined`, `PasanakuLeft`, `PasanakuStarted`
 - `PasanakuDeposited` (per-round obligor payment)
-- `PasanakuTicked`, `PasanakuPenalties`, `PasanakuEnded`
+- `PasanakuTicked`, `PasanakuPenalties`, `PenaltiesClaimed`, `PasanakuEnded`
 - `CollateralAdded`, `CollateralWithdrawn`
 - `FeeSet`, `StaleTimeSet`, `FeesCollected`
 
@@ -191,9 +199,10 @@ Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
 4. Track `pasanaku.index` for current recipient; disable deposit UI for recipient and after `deposited_for_pasanaku`.
 5. Surface `updated + 40 days` for tick eligibility; call or relay `tick` permissionlessly.
 6. After tick, prompt the round recipient to call `claim_round_payout(token_id, round_idx)` (or relay it).
-7. Do not assume one active pool per asset; use `token_id` as the primary key.
-8. On create, attach `msg.value >= fee()`; listen for `FeeSet` to update UI.
-9. For pending pools, compare `pasanaku(id).created` against stale window (default 7 days; `StaleTimeSet` event); offer `leave_pasanaku` when eligible.
+7. Optionally relay `claim_penalties(asset)` when `pending_penalties(asset) > 0` so treasury receives ERC20.
+8. Do not assume one active pool per asset; use `token_id` as the primary key.
+9. On create, attach `msg.value >= fee()`; listen for `FeeSet` to update UI.
+10. For pending pools, compare `pasanaku(id).created` against stale window (default 7 days; `StaleTimeSet` event); offer `leave_pasanaku` when eligible.
 
 ## Development
 

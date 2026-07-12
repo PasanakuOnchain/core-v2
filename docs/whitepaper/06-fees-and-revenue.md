@@ -23,7 +23,7 @@ When an obligor misses a deposit at tick:
 penalty = amount × MISS_PENALTY_BPS / 10000   // 5 bps
 ```
 
-Penalties aggregate per tick and transfer to `owner()` via `_distribute_penalties`. Logged in `PasanakuPenalties`.
+Penalties aggregate per tick into `_pending_penalties[asset]` via `_distribute_penalties` (logged in `PasanakuPenalties`). `tick` does not ERC20-transfer to `owner()`. Anyone may later call permissionless `claim_penalties(asset)`, which transfers accrued penalties to the current `owner()` and emits `PenaltiesClaimed`. View: `pending_penalties(asset)`.
 
 Miss penalties are **not** taken from recipient principal — they are an additional sink on top of obligor collateral.
 
@@ -32,7 +32,7 @@ Miss penalties are **not** taken from recipient principal — they are an additi
 | Source | Asset | Recipient |
 |--------|-------|-----------|
 | Pool creation | ETH | `owner()` via `collect_fees()` |
-| Missed deposits | Pool ERC20 | `owner()` on tick |
+| Missed deposits | Pool ERC20 | Accrue on tick; `owner()` via `claim_penalties(asset)` |
 
 ## Vision sidebar — not deployed
 
@@ -46,4 +46,4 @@ Miss penalties are **not** taken from recipient principal — they are an additi
 
 > **Implemented today**
 >
-> ETH fee and ERC20 penalties to `owner()` are in `src/Pasanaku.vy`. See [README.md](../../README.md) — Pool creation fee (ETH) and Owner role.
+> ETH fee and ERC20 penalties (via `claim_penalties`) to `owner()` are in `src/Pasanaku.vy`. See [README.md](../../README.md) — Pool creation fee (ETH) and Owner role.

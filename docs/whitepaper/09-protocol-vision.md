@@ -2,7 +2,7 @@
 
 > **This chapter describes planned future governance. It is NOT deployed in core-v2.**
 
-The current Pasanaku contract uses **Ownable two-step admin**: a single `owner()` receives ETH creation fees and ERC20 miss penalties via `collect_fees()` and tick penalty distribution. There is no governance token, no staking, and no onchain proposal system in `src/Pasanaku.vy`.
+The current Pasanaku contract uses **Ownable two-step admin**: a single `owner()` receives ETH creation fees via `collect_fees()` and ERC20 miss penalties via permissionless `claim_penalties` (accrued on tick into `pending_penalties`). There is no governance token, no staking, and no onchain proposal system in `src/Pasanaku.vy`.
 
 ## Intended direction
 
@@ -37,10 +37,11 @@ None of this exists onchain in core-v2 today.
 
 When writing about Pasanaku publicly:
 
-- ✅ “Penalties and creation fees go to `owner()` in the current deployment.”
+- ✅ “Penalties accrue on tick and go to `owner()` via `claim_penalties` in the current deployment.”
 - ✅ “NAKU governance and staker fee share are on the roadmap, not live.”
 - ❌ “Token holders earn protocol revenue.” (without “planned” qualifier)
 - ❌ “Governance votes control fees today.”
+- ❌ “Tick pushes miss penalties to `owner()` as an ERC20 transfer.” (accrue then `claim_penalties`)
 
 See also [CONTEXT.md](../../CONTEXT.md) — Protocol vision vs deployed behavior.
 

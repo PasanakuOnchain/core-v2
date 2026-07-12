@@ -80,14 +80,15 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 ### tick
 
-**Language:** Permissionless `tick(token_id)` after `updated + 40 days`. Settles current round, accrues principal to `pending_payout`, routes penalties to owner, advances index or ends pool.
+**Language:** Permissionless `tick(token_id)` after `updated + 40 days`. Settles current round, accrues principal to `pending_payout`, accrues miss penalties to `pending_penalties`, advances index or ends pool.
 
-**Relationships:** Emits `PasanakuTicked`; may emit `PasanakuPenalties`. Recipient claims ERC20 via `claim_round_payout`. Not callable by owner exclusively.
+**Relationships:** Emits `PasanakuTicked`; may emit `PasanakuPenalties`. Recipient claims ERC20 via `claim_round_payout`. Penalties transfer to `owner()` only via later `claim_penalties`. Not callable by owner exclusively.
 
 **Example dialogue:**
 - ✅ “Anyone can tick once the 40-day window elapses.”
 - ❌ “The protocol admin must tick each round.”
 - ❌ “Tick sends principal directly to the recipient’s wallet.” (recipient must `claim_round_payout`)
+- ❌ “Tick pushes miss penalties to owner as an ERC20 transfer.” (accrues to `pending_penalties`; claim later)
 
 ---
 
@@ -131,23 +132,25 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Language:** `amount * MISS_PENALTY_BPS / 10000` (5 bps = 0.05% of `amount`) per missed obligor deposit, slashed with principal `amount` from collateral.
 
-**Relationships:** Summed to `owner()` on tick (`PasanakuPenalties`). Does not reduce recipient’s `amount` credit for that obligor.
+**Relationships:** Accrues to `_pending_penalties[asset]` on tick (`PasanakuPenalties`); anyone may later call `claim_penalties(asset)` to transfer to current `owner()` (`PenaltiesClaimed`). Does not reduce recipient’s `amount` credit for that obligor. View: `pending_penalties(asset)`.
 
 **Example dialogue:**
-- ✅ “Penalty is 0.05% of the per-round amount, sent to treasury.”
+- ✅ “Penalty is 0.05% of the per-round amount, accrued then claimed to treasury.”
 - ❌ “A miss only costs the penalty, not the round principal.”
+- ❌ “Tick transfers the penalty ERC20 to owner immediately.”
 
 ---
 
 ### Treasury sink
 
-**Language:** `owner()` receives aggregated miss penalties (ERC20) and creation fees (ETH via `collect_fees()`), not obligor principal.
+**Language:** `owner()` receives aggregated miss penalties (ERC20 via `claim_penalties`) and creation fees (ETH via `collect_fees()`), not obligor principal.
 
 **Relationships:** Ownable two-step; economically relevant but does not operate rounds. Configures `set_fee` and `set_stale_time`.
 
 **Example dialogue:**
-- ✅ “Treasury earned 0.4 USDC in penalties this tick.”
+- ✅ “Treasury earned 0.4 USDC in penalties after claim_penalties.”
 - ❌ “Owner can redirect recipient payouts.”
+- ❌ “Penalties land in the owner wallet inside the tick transaction.”
 
 ---
 
@@ -167,35 +170,39 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Language:** Owner-only `collect_fees()` — transfers the contract’s native ETH balance to `owner()`. Emits `FeesCollected`. Used for accumulated creation fees from `create_pasanaku`.
 
-**Relationships:** Does not sweep ERC20 (miss penalties transfer on tick). Distinct from `withdraw_collateral`. Requires successful ETH transfer to owner.
+**Relationships:** Does not sweep ERC20 (miss penalties are claimed via `claim_penalties`). Distinct from `withdraw_collateral`. Requires successful ETH transfer to owner.
 
 **Example dialogue:**
 - ✅ “Owner called collect_fees after ten pools were created at 0.0001 ETH each.”
-- ❌ “collect_fees pulls USDC penalties.” (penalties are ERC20 on tick, not ETH sweep)
+- ❌ “collect_fees pulls USDC penalties.” (penalties are ERC20 via `claim_penalties`, not ETH sweep)
 
 ---
 
 ### Stale pool / leave_pasanaku
 
-**Language:** Pending pool (`started == 0`) where `created + stale_time <= now`. Participants may `leave_pasanaku(token_id)` to unlock pledged collateral and exit.
+**Language:** Pending pool (`started == 0`) where `created + stale_time <= now`. Participants may `leave_pasanaku(token_id)` to unlock pledged collateral and exit. `_remove_from_array` shifts subsequent members down, preserving relative join order of remaining participants (not swap-with-last).
 
 **Relationships:** `stale_time` is 3–7 days (default 7), set by owner via `set_stale_time`. Emits `PasanakuLeft`. ERC-1155 `uri()` returns stale metadata when eligible.
 
 **Example dialogue:**
 - ✅ “Pool 12 is stale with 4/10 members; Alice called leave_pasanaku.”
+- ✅ “After Bob left mid-list, Carol stayed ahead of Dan in join order.”
 - ❌ “Stale pools auto-cancel and refund everyone.” (each participant must leave individually)
+- ❌ “Leave swaps the leaver with the last participant.”
 
 ---
 
 ### Pull claim
 
-**Language:** Payout delivery model: `tick` accrues principal to `pending_payout`; recipient must call `claim_round_payout` to receive ERC20.
+**Language:** Delivery model for both recipient principal and miss penalties: `tick` accrues; later calls transfer ERC20. Principal: `pending_payout` / `claim_round_payout`. Penalties: `pending_penalties` / permissionless `claim_penalties` to current `owner()`.
 
 **Relationships:** Pool index advances on tick even if claim is delayed. See ADR-0001.
 
 **Example dialogue:**
 - ✅ “After tick, the recipient pulls payout via claim_round_payout.”
+- ✅ “Anyone can call claim_penalties to send accrued penalties to owner.”
 - ❌ “Tick automatically sends tokens to the recipient wallet.”
+- ❌ “Tick automatically sends penalty tokens to owner.”
 
 ---
 
@@ -206,7 +213,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 **Relationships:** Future vision belongs in `docs/whitepaper.md` (Roadmap) and `docs/whitepaper/09-protocol-vision.md`. Do not imply NAKU or token-holder revenue exists onchain in core-v2.
 
 **Example dialogue:**
-- ✅ “Today penalties go to owner(); NAKU staker fee share is a planned upgrade.”
+- ✅ “Today penalties go to owner() via claim_penalties; NAKU staker fee share is a planned upgrade.”
 - ❌ “Token holders receive protocol fees.” (without “planned / not deployed” qualifier)
 
 ---
@@ -239,7 +246,7 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Language:** Per-pool ERC20 attribution ledger `_pool_escrow[token_id]`. View: `pool_escrow(token_id)`.
 
-**Relationships:** Credited on `deposit_to_pasanaku` and miss slashes in `_settle_round`; debited on payout accrual and penalty distribution. Isolates concurrent same-asset pools.
+**Relationships:** Credited on `deposit_to_pasanaku` and miss slashes in `_settle_round`; debited on payout accrual and penalty accrual to `pending_penalties`. Isolates concurrent same-asset pools.
 
 **Example dialogue:**
 - ✅ “Pool B’s `pool_escrow` is unchanged after pool A ticks.”
@@ -251,11 +258,23 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 
 **Language:** `pending_payout(token_id, round_idx)` holds accrued principal after `tick`. `claim_round_payout(token_id, round_idx)` transfers ERC20 to `participants[round_idx]` only.
 
-**Relationships:** Pool advances on `tick` even if claim is delayed. Distinct from collateral and from obligor deposit escrow.
+**Relationships:** Pool advances on `tick` even if claim is delayed. Distinct from collateral, obligor deposit escrow, and `pending_penalties`.
 
 **Example dialogue:**
 - ✅ “Recipient called `claim_round_payout(3, 2)` after round 2 ticked.”
 - ❌ “Principal arrives in the recipient wallet inside the same `tick` transaction.”
+
+---
+
+### pending_penalties / claim_penalties
+
+**Language:** `pending_penalties(asset)` holds accrued miss penalties after `tick`. Permissionless `claim_penalties(asset)` transfers the balance to current `owner()` and emits `PenaltiesClaimed`.
+
+**Relationships:** Accrued via `_distribute_penalties` on tick (`PasanakuPenalties` logs accrual). `tick` never ERC20-transfers penalties to owner. Distinct from `claim_round_payout` and `collect_fees`.
+
+**Example dialogue:**
+- ✅ “After three ticks with misses, claim_penalties(USDC) sent 0.15 USDC to owner.”
+- ❌ “Tick transfers penalty ERC20 to owner in the same transaction.”
 
 ---
 
@@ -268,6 +287,8 @@ If unsure, read `pledge()`, `_settle_round`, `tick`, and `active_pasanaku_for_as
 | pledge | `amount*N` plus penalty reserve | Same as single `amount` |
 | Payout | `(N-1) * amount` principal to recipient | `N * amount` |
 | Payout delivery | Recipient calls `claim_round_payout` after tick | Tick sends ERC20 directly to recipient wallet |
+| Penalty delivery | Accrue to `pending_penalties`; `claim_penalties` to owner | Tick pushes penalty ERC20 to owner |
+| Leave order | Shift-down; remaining members keep relative join order | Swap-with-last on leave |
 | Penalty | 0.05% of `amount` per miss (5 bps) | 5% penalty |
 | Pools per asset | Counter; multiple active allowed | “One active pool per asset” (unless code adds `assert`) |
 | Assets | Four deployment-configured ERC20s | Hardcoding wstETH/GHO vs whatever `deploy.py` uses |
