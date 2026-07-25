@@ -180,12 +180,12 @@ _TOKEN_AMOUNT: constant(uint256) = 1
 
 # @dev Maximum fee range acceptable for creating a Pasanaku.
 # @notice Fee is only set by the `owner`.
-_MAX_FEE: constant(uint256) = as_wei_value(0.001, "ether")
+_MAX_FEE: constant(uint256) = as_wei_value(0.005, "ether")
 
 
 # @dev Minimum fee range acceptable for creating a Pasanaku.
 # @notice Fee is only set by the `owner`.
-_MIN_FEE: constant(uint256) = 0
+_MIN_FEE: constant(uint256) = as_wei_value(0.00025, "ether")
 
 
 # @dev Internal counter used to keep track of ERC-1155 token ids.
@@ -236,14 +236,21 @@ _fee: uint256
 
 @deploy
 @payable
-def __init__(asset: address, vault: address):
+def __init__(asset: IERC20, vault: IERC4626, fee: uint256):
+    # Set immutables.
+    _ASSET = asset
+    _VAULT = vault
+    assert vault.asset() == asset  # dev: bad asset+vault configuration
+
+    # Set storage variables.
+    self._stale_time = _7_DAYS
+    self._fee = fee
+    log FeeSet(fee=fee)
+
+    # Initializes modules.
     ow.__init__()
     ow2step.__init__()
     erc1155.__init__("")
-    _ASSET = asset
-    _VAULT = vault
-    assert vault.asset() == asset  # dev: bad asset-vault configuration
-    self._stale_time = _7_DAYS
 
 
 @external
