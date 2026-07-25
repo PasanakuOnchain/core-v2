@@ -6,31 +6,13 @@
 @notice Rotating savings pool with collateral-backed rounds.
 @license GNU Affero General Public License v3.0 only
 @author rafael-abuawad
-
-@dev Constructor takes four deployment-specific supported ERC20 addresses (see deploy script
-      env vars). Standard transfer semantics only — no fee on transfer or rebasing; internal
-      balances match IERC20 movers. Non-upgradeable instances; no pause or emergency override.
-
-Protocol summary:
-    • N = _PARTICIPANT_COUNT participants; creator joins first; pool auto-starts when full.
-    • Window index k equals pasanaku.index before tick: recipient is participants[k];
-      all other participants must deposit pasanaku.amount for that k (recipient exempt).
-    • Each tick (after _DAYS_40): permissionless settle round k — recipient receives
-      (N-1)*amount in principal. Non-recipients who did not deposit lose amount plus a miss
-      penalty (bps) from _collateral; principal still credits the payout. Penalty ERC20 goes
-      to owner() (treasury); `PasanakuPenalties` logs the amount.
-    • Obligor deposits: underlying ERC20 is held on-contract as escrow until tick pays the
-      round recipient.
-    • active_pasanaku_by_asset is a counter of started, not-yet-ended pools per asset (not a
-      hard cap of one); multiple concurrent active pools per asset are possible. Pending pools
-      for the same asset may coexist.
-    • Join/create lock pledge(amount) = amount*N + amount*N*_MISS_PENALTY_BPS//10000 into
-      _collateral_in_use. Only free collateral (collateral minus in_use) is withdrawable.
-    • ERC1155 membership receipts are non-transferable (soul-bound).
 """
 
 
 from ethereum.ercs import IERC20
+
+
+from ethereum.ercs import IERC4626
 
 
 from ethereum.ercs import IERC165
@@ -70,17 +52,21 @@ exports: (
 )
 
 
-event CollateralAdded:
-    account: indexed(address)
-    asset: indexed(address)
-    amount: uint256
+event CollateralDeposited:
+    receiver: indexed(address)
+    assets: uint256
 
 
 event CollateralWithdrawn:
-    account: indexed(address)
-    asset: indexed(address)
-    amount: uint256
-    balance_after: uint256
+    owner: indexed(address)
+    receiver: indexed(address)
+    assets: uint256
+
+
+event CollateralRedeemed:
+    owner: indexed(address)
+    receiver: indexed(address)
+    shares: uint256
 
 
 event PasanakuCreated:
@@ -155,8 +141,8 @@ event FeesCollected:
 struct Pasanaku:
     token_id: uint256
     asset: address
-    amount: uint256
-    participants: DynArray[address, _PARTICIPANT_COUNT]
+    assets: uint256
+    participants: DynArray[address, _MAX_PARTICIPANT_COUNT]
     index: uint256
     created: uint256
     started: uint256
@@ -164,56 +150,201 @@ struct Pasanaku:
     ended: uint256
 
 
-_PARTICIPANT_COUNT: constant(uint256) = 10
-_MISS_PENALTY_BPS: constant(uint256) = 5
-_DAYS_40: constant(uint256) = 40 * 24 * 60 * 60
-_DAYS_3: constant(uint256) = 3 * 24 * 60 * 60
-_DAYS_7: constant(uint256) = 7 * 24 * 60 * 60
-_SUPPORTED_ASSETS_COUNT: constant(uint256) = 4
-_SUPPORTED_ASSETS: immutable(address[_SUPPORTED_ASSETS_COUNT])
-_TOKEN_AMOUNT: constant(uint256) = 1
+# @dev 7 days in seconds.
+_7_DAYS: constant(uint256) = 7 * 24 * 60 * 60
+
+
+# @dev The maximum number of participants.
+_MAX_PARTICIPANT_COUNT: constant(uint256) = 12
+
+
+# @dev The minimum number of participants.
+_MIN_PARTICIPANT_COUNT: constant(uint256) = 6
+
+
+# @dev BPS precision constant used for calculations.
 _BPS_PRECISION: constant(uint256) = 10000
+
+
+# @dev Address of the supported asset.
+_ASSET: immutable(IERC20)
+
+
+# @dev Address of the supported vault.
+_VAULT: immutable(IERC4626)
+
+
+# @dev Amount of the Pasanaku NFT minted.
+_TOKEN_AMOUNT: constant(uint256) = 1
+
+
+# @dev Maximum fee range acceptable for creating a Pasanaku.
+# @notice Fee is only set by the `owner`.
 _MAX_FEE: constant(uint256) = as_wei_value(0.001, "ether")
+
+
+# @dev Minimum fee range acceptable for creating a Pasanaku.
+# @notice Fee is only set by the `owner`.
 _MIN_FEE: constant(uint256) = 0
 
+
+# @dev Internal counter used to keep track of ERC-1155 token ids.
 _counter: uint256
+
+
+# @dev Mapping: Token ID -> Pasanaku.
 _pasanakus: HashMap[uint256, Pasanaku]
-_collateral: HashMap[address, HashMap[address, uint256]]
-_collateral_in_use: HashMap[address, HashMap[address, uint256]]
+
+
+# @dev Mapping: account address -> Total collateral (as shares)
+_collateral: HashMap[address, uint256]
+
+
+# @dev Mapping: Account address ->  Collateral in use (as shares)
+_collateral_in_use: HashMap[address, uint256]
+
+
+# @dev Mapping: Token (Pasanaku) ID -> Account address -> Slashed collateral in use (as shares)
+_slashed_from_in_use: HashMap[uint256, HashMap[address, uint256]]
+
+
+# @dev Mapping: Token (Pasanaku) ID -> Active participant index -> Account address -> Deposited
 _deposited_for_pasanaku: HashMap[uint256, HashMap[uint256, HashMap[address, bool]]]  # nosplit
+
+
+# @dev Mapping: Token (Pasanaku) ID -> Account address -> Successful deposits
 _successful_obligated_deposits: HashMap[uint256, HashMap[address, uint256]]
-_slash_from_in_use: HashMap[uint256, HashMap[address, uint256]]
-_active_pasanaku_by_asset: HashMap[address, uint256]
+
+
+# @dev Lifetime of a Pasanaku in seconds before its considered stale.
+# This number is counted from the creation of the pasanaku.
 _stale_time: uint256
+
+
+# @dev The amount of deposits that have gone specifically into a single pool.
+# ?
 _pool_escrow: HashMap[uint256, uint256]
-_pending_payout: HashMap[uint256, HashMap[uint256, uint256]]  # token_id -> round_idx -> amount # nosplit
+
+
+# ?
+_pending_payout: HashMap[uint256, HashMap[uint256, uint256]]
+
+
+# @dev Fee charged when creating a Pasanaku.
 _fee: uint256
+
 
 @deploy
 @payable
-def __init__(supported_assets: address[_SUPPORTED_ASSETS_COUNT]):
-    _SUPPORTED_ASSETS = supported_assets
-    self._stale_time = _DAYS_7
-
+def __init__(asset: address, vault: address):
     ow.__init__()
     ow2step.__init__()
     erc1155.__init__("")
+    _ASSET = asset
+    _VAULT = vault
+    assert vault.asset() == asset  # dev: bad asset-vault configuration
+    self._stale_time = _7_DAYS
 
 
 @external
 @nonreentrant
-def add_collateral(asset: address, amount: uint256):
-    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
-    assert amount > 0  # dev: invalid amount
+def deposit(assets: uint256, receiver: address) -> uint256:
+    assert assets > 0  # dev: invalid assets amount
 
-    self._collateral[msg.sender][asset] += amount
-    log CollateralAdded(
-        account=msg.sender,
+    # Moves token from user to Pasanaku
+    success: bool = extcall asset.transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
+    assert success  # dev: transferFrom failed
+
+    # Deposits token into erc4626 vault
+    shares: uint256 = extcall vault.deposit(amount, self)
+    assert shares > 0 # dev: erc4626 deposit failed
+    self._collateral[receiver] += shares
+
+    log CollateralDeposited(
+        receiver=receiver,
+        assets=assets,
+    )
+    return shares
+
+
+@external
+@nonreentrant
+def withdraw(assets: uint256, receiver: address) -> uint256:
+    assert assets > 0  # dev: invalid assets amount
+
+    # Previews the shares to be withdrawn.
+    preview_shares: uint256 = staticcall vault.previewWithdraw(assets)
+    collateral: uint256 = self._collateral[msg.sender]
+    assert collateral >= preview_shares  # dev: insufficient collateral
+
+    # Calculates if enought collateral is free.
+    collateral_in_use: uint256 = self._collateral_in_use[msg.sender]
+    assert collateral > collateral_in_use  # dev: collateral in use
+    assert collateral - collateral_in_use >= amount  # dev: insufficient free collateral # nosplit
+
+    # Moves the shares back to the user.
+    shares: uint256 = extcall IERC4626(vault).withdraw(assets, receiver, self)
+    assert shares >= preview_shares  # dev: less shares than expected
+
+    self._collateral[msg.sender] -= shares
+
+    log CollateralWithdrawn(
+        owner=msg.sender,
+        receiver=receiver,
+        assets=assets,
+    )
+    return shares
+
+
+@external
+@nonreentrant
+def redeem(shares: uint256, receiver: address) -> uint256:
+    assert shares > 0  # dev: invalid shares amount
+
+    # Check if enought free collateral is available.
+    collateral: uint256 = self._collateral[msg.sender]
+    collateral_in_use: uint256 = self._collateral_in_use[msg.sender]
+
+    assert collateral >= shares  # dev: insufficient shares
+    assert collateral > collateral_in_use  # dev: collateral in use
+    assert collateral - collateral_in_use >= assets  # dev: insufficient free collateral # nosplit
+
+    assets: uint256 = extcall IERC4626(vault).redeem(shares, receiver, self)
+    self._collateral[msg.sender] -= shares
+
+    log CollateralRedeemed(
+        owner=msg.sender,
+        asset=asset,
+        shares=shares
+    )
+    return assets
+
+
+@external
+@payable
+def create_pasanaku(asset: address, assets: uint256) -> uint256:
+    assert assets > 0  # dev: invalid amount
+    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
+    assert msg.value >= self._fee  # dev: insufficient fee
+
+    token_id: uint256 = self._counter
+    self._counter += 1
+
+    pasanaku: Pasanaku = empty(Pasanaku)
+    pasanaku.asset = asset
+    pasanaku.assets = assets
+    pasanaku.participants.append(msg.sender)
+    pasanaku.created = block.timestamp
+    self._pasanakus[token_id] = pasanaku
+    self._update_collateral_in_use(pasanaku)
+
+    log PasanakuCreated(
+        token_id=token_id,
         asset=asset,
         amount=amount,
     )
-    success: bool = extcall IERC20(asset).transferFrom(msg.sender, self, amount, default_return_value=True)  # nosplit
-    assert success  # dev: transferFrom failed
+    return token_id
+
 
 
 @external
@@ -246,57 +377,6 @@ def deposit_to_pasanaku(amount: uint256, token_id: uint256):
         asset=pasanaku.asset,
         amount=amount,
     )
-
-
-@external
-@nonreentrant
-def withdraw_collateral(asset: address, amount: uint256):
-    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
-    assert amount > 0  # dev: invalid amount
-
-    collateral: uint256 = self._collateral[msg.sender][asset]
-    collateral_in_use: uint256 = self._collateral_in_use[msg.sender][asset]
-    assert collateral > collateral_in_use  # dev: collateral in use
-    assert collateral - collateral_in_use >= amount  # dev: insufficient free collateral # nosplit
-
-    self._collateral[msg.sender][asset] -= amount
-
-    success: bool = extcall IERC20(asset).transfer(msg.sender, amount, default_return_value=True)  # nosplit
-    assert success  # dev: transfer failed
-
-    log CollateralWithdrawn(
-        account=msg.sender,
-        asset=asset,
-        amount=amount,
-        balance_after=self._collateral[msg.sender][asset],
-    )
-
-
-@external
-@payable
-def create_pasanaku(asset: address, amount: uint256) -> uint256:
-    assert msg.value >= self._fee  # dev: insufficient fee
-    assert amount > 0  # dev: invalid amount
-    assert asset in _SUPPORTED_ASSETS  # dev: unsupported asset
-
-    token_id: uint256 = self._counter
-    self._counter += 1
-
-    pasanaku: Pasanaku = empty(Pasanaku)
-    pasanaku.asset = asset
-    pasanaku.amount = amount
-    pasanaku.participants.append(msg.sender)
-    pasanaku.created = block.timestamp
-    self._pasanakus[token_id] = pasanaku
-    self._update_collateral_in_use(pasanaku)
-
-    log PasanakuCreated(
-        token_id=token_id,
-        asset=asset,
-        amount=amount,
-    )
-    return token_id
-
 
 @external
 @nonreentrant
@@ -331,8 +411,8 @@ def leave_pasanaku(token_id: uint256):
         pasanaku.created + self._stale_time <= block.timestamp
     )  # dev: pasanaku is not stale
     assert msg.sender in pasanaku.participants  # dev: participant not in pasanaku # nosplit
-
     self._unlock_participant_collateral_in_use(token_id, pasanaku, msg.sender)
+
     pasanaku.participants = self._remove_from_array(
         pasanaku.participants, msg.sender
     )
@@ -421,8 +501,7 @@ def claim_round_payout(token_id: uint256, round_idx: uint256):
 @external
 def set_fee(fee: uint256):
     ow._check_owner()
-    assert fee >= _MIN_FEE  # dev: fee is out of range
-    assert fee <= _MAX_FEE  # dev: fee is out of range
+    assert fee >= _MIN_FEE and fee <= _MAX_FEE  # dev: fee is out of range
     self._fee = fee
     log FeeSet(fee=fee)
 
