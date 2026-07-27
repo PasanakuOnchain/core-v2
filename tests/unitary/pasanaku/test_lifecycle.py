@@ -61,10 +61,11 @@ def test_pasanaku_starts_at_configured_size(
 def test_create_and_join_lock_shares(
     pasanaku_contract,
     usdc_contract,
+    vault_contract,
     owner,
     users,
 ):
-    needed = pledge(PASANAKU_AMOUNT_RAW, 6)
+    needed = vault_contract.previewWithdraw(pledge(PASANAKU_AMOUNT_RAW, 6))
     fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
@@ -124,9 +125,7 @@ def test_pre_start_yield_remains_with_depositor(
 
     assert pasanaku_contract.free_shares(users[0]) > 0
     for user in users:
-        assert pasanaku_contract.locked_asset_basis(token_id, user) == pledge(
-            amount, 6
-        )
+        assert pasanaku_contract.locked_asset_basis(token_id, user) == pledge(amount, 6)
 
 
 def test_leave_stale_pool_returns_locked_shares(
@@ -154,13 +153,14 @@ def test_leave_stale_pool_returns_locked_shares(
     with boa.env.prank(users[1]):
         pasanaku_contract.join_pasanaku(token_id)
     locked = pasanaku_contract.locked_shares(token_id, users[1])
+    free_before_leave = pasanaku_contract.free_shares(users[1])
 
     boa.env.time_travel(seconds=DAYS_3)
     with boa.env.prank(users[1]):
         pasanaku_contract.leave_pasanaku(token_id)
 
     assert pasanaku_contract.locked_shares(token_id, users[1]) == 0
-    assert pasanaku_contract.free_shares(users[1]) == locked
+    assert pasanaku_contract.free_shares(users[1]) == free_before_leave + locked
 
 
 def test_join_stale_pool_reverts_and_leave_still_works(

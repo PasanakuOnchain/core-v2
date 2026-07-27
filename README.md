@@ -23,8 +23,8 @@ vault. The creator chooses a six- or twelve-participant pool.
 5. Anyone may call `tick` after the round deadline. The recipient then pulls
    the accrued payout through `claim_round_payout`.
 6. The final tick returns principal shares, covers principal shortfalls from
-   the pool reserve, and divides all remaining yield and reserve shares equally
-   among participants.
+   the pool reserve, redeems the yield fee directly to the owner, and
+   distributes the remaining yield by shuffled participant position.
 
 ERC-1155 membership receipts mint when the pool starts. They are soulbound:
 all transfer and approval functions revert.
@@ -44,7 +44,8 @@ The contract owns all ERC-4626 shares. Locking and unlocking only move shares
 between internal accounting buckets.
 
 Assets cross the vault boundary only when a user deposits, withdraws, redeems,
-or when a missed round contribution is slashed.
+when a missed round contribution is slashed, or when the final tick pays the
+owner's yield fee.
 
 ## Pledge and misses
 
@@ -72,14 +73,21 @@ from `pool_escrow` to `pending_payout`; the recipient claims later.
 ## Vault yield and losses
 
 - Yield before pool start remains with the depositor.
-- Yield after start is pooled and divided equally at completion.
+- Yield after start is pooled. At completion, the yield fee is redeemed
+  directly to the owner and the remainder is distributed with weight `i + 1`,
+  where `i` is the participant's shuffled recipient position.
 - Reserve shares first cover participant principal shortfalls caused by vault
   loss or rounding.
 - If the reserve cannot cover the full shortfall, the available reserve is
   allocated proportionally and settlement still completes.
 - Mid-round vault loss also settles without freezing `tick`; an underwater
   misser can reduce that round's payout to the assets actually recovered.
-- Any reserve remainder joins vault yield in the equal participant split.
+- Any reserve remainder joins vault yield before the fee and weighted
+  participant distribution.
+
+For `N` participants, `total_weight = N * (N + 1) // 2`. Participant `i`
+receives `distributable_yield * (i + 1) // total_weight`; integer dust is
+included in the final participant's distribution.
 
 Integrators must evaluate the configured vault independently. This contract
 does not pause, upgrade, or guarantee against vault insolvency.
@@ -110,12 +118,13 @@ does not pause, upgrade, or guarantee against vault insolvency.
 The constructor is:
 
 ```text
-Pasanaku(asset, vault, creation_fee_wei)
+Pasanaku(asset, vault, creation_fee_wei, yield_fee_bps)
 ```
 
 It verifies that `vault.asset()` matches `asset`. The owner may set:
 
 - Creation fee: `set_fee`, capped at `0.001 ETH`.
+- Yield fee: `set_yield_fee`, capped at `505` bps.
 - Pending-pool stale time for future pools: `set_stale_time`, from 3 to 7 days.
   Each pool snapshots the value at creation and rejects new joins once stale.
 
@@ -128,6 +137,7 @@ Production deployment uses:
 PASANAKU_ASSET
 PASANAKU_VAULT
 PASANAKU_CREATE_FEE_WEI  # optional, defaults to 0
+PASANAKU_YIELD_FEE_BPS   # optional, defaults to 0
 ```
 
 ## Development
@@ -137,8 +147,29 @@ Requirements: Python 3.12+, `uv`, Moccasin, Titanoboa, and Vyper 0.4.3.
 ```bash
 uv sync
 uv run mox compile
-uv run python -m pytest -q
+uv run mox test
 ```
+
+`mox test` runs unitary tests on the local `pyevm` network and skips the
+Fluid fUSDC fork suite. Run the fork parity suite through Moccasin's
+configured Ethereum mainnet fork:
+
+```bash
+uv run mox test tests/fork --network ethereum
+# or only the fork marker:
+uv run mox test -m fork --network ethereum
+```
+
+Override the RPC from [`moccasin.toml`](moccasin.toml) when needed:
+
+```bash
+uv run mox test tests/fork --network ethereum --url "$ETH_RPC_URL"
+```
+
+Plain pytest still works as a fallback (`ETH_RPC_URL` / `FORK_URL`, optional
+`FORK_BLOCK`). The suite uses mainnet USDC at
+`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` and Fluid fUSDC at
+`0x9Fb7b4477576Fe5B32be4C1843aFB1e55F251B33`.
 
 Local mocks include an ERC-20 and an exchange-rate-adjustable ERC-4626 vault:
 

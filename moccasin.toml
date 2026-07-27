@@ -7,7 +7,20 @@ dependencies = ["snekmate"]
 [networks.pyevm]
 is_zksync = false
 
+[networks.ethereum]
+url = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+chain_id = 1
+fork = true
+block_identifier = "safe"
+prompt_live = false
+save_to_db = false
+live_or_staging = false
+
+[networks.ethereum.contracts]
+usdc = { address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }
+fluid_fusdc = { address = "0x9Fb7b4477576Fe5B32be4C1843aFB1e55F251B33" }
+
 [networks.arbitrum-sepolia]
-url = "https://sepolia-rollup.arbitrum.io/rpc"
+url = "https://arbitrum-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
 chain_id = 421614
 save_to_db = true

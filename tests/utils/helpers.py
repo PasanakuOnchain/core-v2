@@ -43,6 +43,7 @@ def fund_collateral_for_users(
     raw=False,
 ):
     assets = amount_raw if raw else pledge(amount_raw, participant_count)
+    assets += 0 if raw else getattr(asset, "collateral_buffer", 0)
     for user in users:
         with boa.env.prank(owner):
             asset.mint(user, assets)

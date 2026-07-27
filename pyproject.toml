@@ -12,3 +12,8 @@ dependencies = [
     "snekmate>=0.1.2",
     "titanoboa>=0.2.8",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "fork: Fluid fUSDC parity tests; run with `mox test -m fork --network ethereum`",
+]

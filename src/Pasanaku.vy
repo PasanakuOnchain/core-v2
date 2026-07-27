@@ -113,6 +113,7 @@ _VAULT: immutable(IERC4626)
 # - participants: Shuffled roster; index `k` is the recipient of round `k`.
 # - index: Next round to settle via `tick`.
 # - created: Timestamp when the pool was created.
+# - yield_fee: Accrued yield fee snapshotted when the pool was created.
 # - stale_time: Exit timeout snapshotted when the pool was created.
 # - started: Timestamp when membership locked and rounds began (`0` = not started).
 # - updated: Timestamp of the last successful `tick`.
@@ -123,6 +124,7 @@ struct Pasanaku:
     participants: DynArray[address, _MAX_PARTICIPANT_COUNT]
     index: uint256
     created: uint256
+    yield_fee: uint256
     stale_time: uint256
     started: uint256
     updated: uint256
@@ -183,6 +185,10 @@ _stale_time: uint256
 
 # @dev Creation fee in wei (paid as `msg.value`).
 _fee: uint256
+
+
+# @dev Collected fee-shares.
+_collected_fee_shares: uint256
 
 
 # @dev Distribution fee in basis-points.
@@ -267,11 +273,12 @@ event PasanakuReserved:
     shares: uint256
 
 
-# @dev Emitted when leftover reserve / surplus shares are split among participants.
+# @dev Emitted when surplus shares are charged a fee and distributed by position.
 event PasanakuSurplusDistributed:
     token_id: indexed(uint256)
     surplus_shares: uint256
-    shares_per_participant: uint256
+    fee_shares: uint256
+    distributable_yield: uint256
 
 
 # @dev Emitted when the final round settles and the pool ends.
@@ -305,6 +312,14 @@ event FeesCollected:
 @deploy
 @payable
 def __init__(asset_: IERC20, vault_: IERC4626, fee_: uint256, yield_fee_: uint256):
+    """
+    @dev Configures the underlying asset, ERC-4626 vault, protocol fees, and
+        inherited ownership and ERC-1155 modules.
+    @param asset_ The ERC-20 asset used for deposits and payouts.
+    @param vault_ The ERC-4626 vault used to hold collateral.
+    @param fee_ The creation fee denominated in wei.
+    @param yield_fee_ The fee on surplus yield in basis points.
+    """
     assert asset_ != empty(IERC20)  # dev: invalid asset
     assert vault_ != empty(IERC4626)  # dev: invalid vault
     assert staticcall vault_.asset() == asset_.address  # dev: bad asset+vault configuration
@@ -322,11 +337,19 @@ def __init__(asset_: IERC20, vault_: IERC4626, fee_: uint256, yield_fee_: uint25
     erc1155.__init__("")
 
     log FeeSet(fee=fee_)
-    log YieldFeeSet(fee=fee_)
+    log YieldFeeSet(fee=yield_fee_)
 
 
 @external
 def deposit(assets: uint256, receiver: address) -> uint256:
+    """
+    @dev Pulls assets from the caller, deposits them into the vault, and
+        credits the resulting free shares to `receiver`.
+    @notice Deposits assets as free collateral for a receiver.
+    @param assets The amount of underlying assets to deposit.
+    @param receiver The account credited with the resulting free shares.
+    @return The number of vault shares credited to the receiver.
+    """
     assert assets > 0  # dev: invalid assets amount
     assert receiver != empty(address)  # dev: invalid receiver
 
@@ -349,6 +372,14 @@ def deposit(assets: uint256, receiver: address) -> uint256:
 
 @external
 def withdraw(assets: uint256, receiver: address) -> uint256:
+    """
+    @dev Withdraws an exact asset amount by consuming the caller's free vault
+        shares.
+    @notice Withdraws free collateral assets to a receiver.
+    @param assets The amount of underlying assets to withdraw.
+    @param receiver The account that receives the underlying assets.
+    @return The number of free vault shares consumed.
+    """
     assert assets > 0  # dev: invalid assets amount
     assert receiver != empty(address)  # dev: invalid receiver
 
@@ -370,6 +401,14 @@ def withdraw(assets: uint256, receiver: address) -> uint256:
 
 @external
 def redeem(shares: uint256, receiver: address) -> uint256:
+    """
+    @dev Redeems an exact number of the caller's free vault shares for
+        underlying assets.
+    @notice Redeems free collateral shares to a receiver.
+    @param shares The number of free vault shares to redeem.
+    @param receiver The account that receives the underlying assets.
+    @return The amount of underlying assets sent to the receiver.
+    """
     assert shares > 0  # dev: invalid shares amount
     assert receiver != empty(address)  # dev: invalid receiver
     assert self._free_shares[msg.sender] >= shares  # dev: insufficient free shares
@@ -391,6 +430,14 @@ def redeem(shares: uint256, receiver: address) -> uint256:
 def create_pasanaku(
     round_assets: uint256, participant_count: uint256
 ) -> uint256:
+    """
+    @dev Creates a pool, locks the creator's pledge, collects the creation fee,
+        and refunds any excess native currency.
+    @notice Creates a pasanaku and enrolls the caller as its first participant.
+    @param round_assets The asset contribution required in each round.
+    @param participant_count The fixed number of participants in the pool.
+    @return The identifier assigned to the new pasanaku.
+    """
     assert round_assets > 0  # dev: invalid amount
     assert self._valid_participant_count(participant_count)  # dev: invalid participant count
     fee: uint256 = self._fee
@@ -404,6 +451,7 @@ def create_pasanaku(
     pasanaku.participant_count = participant_count
     pasanaku.participants.append(msg.sender)
     pasanaku.created = block.timestamp
+    pasanaku.yield_fee = self._yield_fee
     pasanaku.stale_time = self._stale_time
     self._pasanakus[token_id] = pasanaku
 
@@ -432,6 +480,13 @@ def create_pasanaku(
 
 @external
 def deposit_to_pasanaku(amount: uint256, token_id: uint256):
+    """
+    @dev Pulls the caller's obligated contribution into the current round's
+        escrow and records the successful deposit.
+    @notice Makes the caller's required deposit for the current round.
+    @param amount The exact amount of underlying assets required by the pool.
+    @param token_id The pasanaku identifier.
+    """
     assert amount > 0  # dev: invalid amount
     assert token_id < self._counter  # dev: invalid token id
 
@@ -463,6 +518,12 @@ def deposit_to_pasanaku(amount: uint256, token_id: uint256):
 
 @external
 def join_pasanaku(token_id: uint256):
+    """
+    @dev Locks the caller's pledge and adds them to an unstarted pool. Starts
+        the pasanaku when the final participant joins.
+    @notice Joins an open pasanaku using the caller's free collateral.
+    @param token_id The pasanaku identifier.
+    """
     assert token_id < self._counter  # dev: invalid token id
 
     pasanaku: Pasanaku = self._pasanakus[token_id]
@@ -494,6 +555,12 @@ def join_pasanaku(token_id: uint256):
 
 @external
 def leave_pasanaku(token_id: uint256):
+    """
+    @dev Removes the caller from a stale, unstarted pool and returns their
+        locked shares to their free balance.
+    @notice Leaves a stale pasanaku that never reached its participant count.
+    @param token_id The pasanaku identifier.
+    """
     assert token_id < self._counter  # dev: invalid token id
 
     pasanaku: Pasanaku = self._pasanakus[token_id]
@@ -522,6 +589,12 @@ def leave_pasanaku(token_id: uint256):
 
 @external
 def tick(token_id: uint256):
+    """
+    @dev Settles the current round, accrues its recipient payout, advances the
+        pool, and finalizes collateral after the last round.
+    @notice Advances a pasanaku after the current round interval has elapsed.
+    @param token_id The pasanaku identifier.
+    """
     assert token_id < self._counter  # dev: invalid token id
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != 0  # dev: pasanaku not started
@@ -551,7 +624,7 @@ def tick(token_id: uint256):
     if round_idx == pasanaku.participant_count - 1:
         pasanaku.ended = block.timestamp
         self._pasanakus[token_id] = pasanaku
-        self._settle_pool_collateral(token_id)
+        self._end_pasanaku(token_id)
         self._active_pasanaku_count -= 1
         log PasanakuEnded(
             token_id=token_id,
@@ -564,6 +637,13 @@ def tick(token_id: uint256):
 
 @external
 def claim_round_payout(token_id: uint256, round_idx: uint256):
+    """
+    @dev Clears and transfers a pending payout to the round's designated
+        recipient.
+    @notice Claims the caller's accrued payout for a completed round.
+    @param token_id The pasanaku identifier.
+    @param round_idx The zero-based round index to claim.
+    """
     assert token_id < self._counter  # dev: invalid token id
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert round_idx < pasanaku.participant_count  # dev: invalid round
@@ -581,6 +661,12 @@ def claim_round_payout(token_id: uint256, round_idx: uint256):
 
 @external
 def set_stale_time(stale_time: uint256):
+    """
+    @dev Sets the timeout for newly created, unstarted pasanakus. Restricted to
+        the owner and bounded between three and seven days.
+    @notice Updates the timeout after which an unstarted pasanaku is stale.
+    @param stale_time The new timeout in seconds.
+    """
     ow._check_owner()
     assert stale_time >= _3_DAYS and stale_time <= _7_DAYS  # dev: stale time out of range
     self._stale_time = stale_time
@@ -589,6 +675,12 @@ def set_stale_time(stale_time: uint256):
 
 @external
 def set_fee(fee_: uint256):
+    """
+    @dev Sets the native-currency creation fee. Restricted to the owner and
+        capped by `_MAX_FEE`.
+    @notice Updates the fee required to create a pasanaku.
+    @param fee_ The new creation fee denominated in wei.
+    """
     ow._check_owner()
     assert fee_ <= _MAX_FEE  # dev: fee is out of range
     self._fee = fee_
@@ -597,6 +689,12 @@ def set_fee(fee_: uint256):
 
 @external
 def set_yield_fee(yield_fee_: uint256):
+    """
+    @dev Sets the fee charged on surplus vault shares when a pool ends.
+        Restricted to the owner and capped by `_MAX_YIELD_FEE`.
+    @notice Updates the protocol fee charged on pasanaku yield.
+    @param yield_fee_ The new yield fee in basis points.
+    """
     ow._check_owner()
     assert yield_fee_ <= _MAX_YIELD_FEE  # dev: fee is out of range
     self._yield_fee = yield_fee_
@@ -605,6 +703,10 @@ def set_yield_fee(yield_fee_: uint256):
 
 @external
 def collect_fees():
+    """
+    @dev Transfers the contract's full native-currency balance to the owner.
+    @notice Sends accrued pasanaku creation fees to the protocol owner.
+    """
     amount: uint256 = self.balance
     success: bool = raw_call(
         ow.owner,
@@ -618,6 +720,22 @@ def collect_fees():
 
 
 @external
+def collect_yield_fees():
+    """
+    @dev Transfers the contract's collected yield fees to the owner.
+    @notice Sends accrued pasanaku end yield fees to the protocol owner.
+    """
+    fee_shares: uint256 = self._collected_fee_shares
+    assert fee_shares > 0  # dev: no yield fees
+    self._collected_fee_shares = 0
+    fee_assets: uint256 = extcall _VAULT.redeem(
+        fee_shares, ow.owner, self
+    )
+    assert fee_assets > 0  # dev: fee transfer failed
+    log FeesCollected(target=ow.owner, amount=fee_assets)
+
+
+@external
 def safeTransferFrom(
     owner: address,
     to: address,
@@ -625,6 +743,14 @@ def safeTransferFrom(
     amount: uint256,
     data: Bytes[1024],
 ):
+    """
+    @dev Always reverts because pasanaku membership tokens are soulbound.
+    @param owner The account that would send the token.
+    @param to The account that would receive the token.
+    @param id The token identifier that would be transferred.
+    @param amount The token amount that would be transferred.
+    @param data Arbitrary transfer data.
+    """
     raise "pasanaku: pasanakus are soul-bounded tokens"
 
 
@@ -636,17 +762,38 @@ def safeBatchTransferFrom(
     amounts: DynArray[uint256, 128],
     data: Bytes[1024],
 ):
+    """
+    @dev Always reverts because pasanaku membership tokens are soulbound.
+    @param owner The account that would send the tokens.
+    @param to The account that would receive the tokens.
+    @param ids The token identifiers that would be transferred.
+    @param amounts The token amounts that would be transferred.
+    @param data Arbitrary transfer data.
+    """
     raise "pasanaku: pasanakus are soul-bounded tokens"
 
 
 @external
 def setApprovalForAll(operator: address, approved: bool):
+    """
+    @dev Always reverts because approvals cannot be granted for soulbound
+        pasanaku membership tokens.
+    @param operator The account that would receive approval.
+    @param approved Whether approval would be granted or revoked.
+    """
     raise "pasanaku: pasanakus are soul-bounded tokens"
 
 
 @external
 @view
 def uri(token_id: uint256) -> String[512]:
+    """
+    @dev Selects an IPFS metadata URI from the token's existence and pasanaku
+        lifecycle state.
+    @notice Returns the metadata URI for a pasanaku membership token.
+    @param token_id The pasanaku membership token identifier.
+    @return The IPFS metadata URI for the token's current state.
+    """
     if token_id >= self._counter:
         return "ipfs://QmbcELYwEiVu6n6nJhHmdqTRPfWD6eNHiXZhixKvhjAznF"
 
@@ -663,6 +810,14 @@ def uri(token_id: uint256) -> String[512]:
 @external
 @view
 def isApprovedForAll(owner: address, operator: address) -> bool:
+    """
+    @dev Always returns false because approvals are disabled for soulbound
+        pasanaku membership tokens.
+    @notice Reports that no operator is approved for membership tokens.
+    @param owner The token owner whose approvals are queried.
+    @param operator The operator whose approval is queried.
+    @return Always false.
+    """
     return False
 
 
@@ -758,6 +913,12 @@ def fee() -> uint256:
 
 @external
 @view
+def yield_fee() -> uint256:
+    return self._yield_fee
+
+
+@external
+@view
 def stale_time() -> uint256:
     return self._stale_time
 
@@ -765,6 +926,14 @@ def stale_time() -> uint256:
 @external
 @pure
 def pledge(round_assets: uint256, participant_count: uint256) -> uint256:
+    """
+    @dev Validates the participant count and computes principal plus the
+        maximum miss penalty.
+    @notice Returns the collateral required to join a pasanaku.
+    @param round_assets The asset contribution required in each round.
+    @param participant_count The fixed number of participants in the pool.
+    @return The required collateral amount denominated in underlying assets.
+    """
     assert self._valid_participant_count(participant_count)  # dev: invalid participant count
     return self._pledge(round_assets, participant_count)
 
@@ -772,6 +941,12 @@ def pledge(round_assets: uint256, participant_count: uint256) -> uint256:
 @internal
 @pure
 def _valid_participant_count(participant_count: uint256) -> bool:
+    """
+    @dev Checks whether a participant count is one of the supported fixed
+        sizes.
+    @param participant_count The participant count to validate.
+    @return True when the count is 6 or 12.
+    """
     return (
         participant_count == _MIN_PARTICIPANT_COUNT
         or participant_count == _MAX_PARTICIPANT_COUNT
@@ -781,6 +956,12 @@ def _valid_participant_count(participant_count: uint256) -> bool:
 @internal
 @pure
 def _pledge(round_assets: uint256, participant_count: uint256) -> uint256:
+    """
+    @dev Computes total round principal plus the configured miss penalty.
+    @param round_assets The asset contribution required in each round.
+    @param participant_count The fixed number of participants in the pool.
+    @return The required collateral amount denominated in underlying assets.
+    """
     principal: uint256 = round_assets * participant_count
     penalties: uint256 = (
         principal * _MISS_PENALTY_BPS // _BPS_PRECISION
@@ -795,6 +976,14 @@ def _lock_pledge(
     round_assets: uint256,
     participant_count: uint256,
 ):
+    """
+    @dev Converts the required asset pledge to vault shares and moves those
+        shares from the participant's free balance to the pool's locked balance.
+    @param token_id The pasanaku identifier.
+    @param participant The account whose collateral is locked.
+    @param round_assets The asset contribution required in each round.
+    @param participant_count The fixed number of participants in the pool.
+    """
     assets: uint256 = self._pledge(round_assets, participant_count)
     shares: uint256 = staticcall _VAULT.previewWithdraw(assets)
     assert self._free_shares[participant] >= shares  # dev: insufficient free shares
@@ -804,6 +993,11 @@ def _lock_pledge(
 
 @internal
 def _start_pasanaku(token_id: uint256):
+    """
+    @dev Shuffles participants, normalizes each pledge to the current vault
+        share requirement, mints membership tokens, and activates the pool.
+    @param token_id The pasanaku identifier to start.
+    """
     pasanaku: Pasanaku = self._pasanakus[token_id]
     random_seed: uint256 = convert(
         keccak256(abi_encode(block.prevrandao, block.timestamp, token_id)),
@@ -849,6 +1043,12 @@ def _start_pasanaku(token_id: uint256):
 
 @internal
 def _mint_membership_token(owner: address, token_id: uint256):
+    """
+    @dev Mints the fixed ERC-1155 membership amount directly into module
+        storage and emits the standard transfer event.
+    @param owner The account that receives the membership token.
+    @param token_id The pasanaku membership token identifier.
+    """
     erc1155.total_supply[token_id] += _TOKEN_AMOUNT
     erc1155.balanceOf[owner][token_id] += _TOKEN_AMOUNT
     log IERC1155.TransferSingle(
@@ -864,6 +1064,14 @@ def _mint_membership_token(owner: address, token_id: uint256):
 def _settle_round(
     token_id: uint256, round_idx: uint256, recipient: address
 ) -> uint256:
+    """
+    @dev Counts deposited obligations toward the payout and covers missed
+        obligations from collateral, reserving available penalty shares.
+    @param token_id The pasanaku identifier.
+    @param round_idx The zero-based round index being settled.
+    @param recipient The participant designated to receive the round payout.
+    @return The underlying asset amount accrued for the recipient.
+    """
     pasanaku: Pasanaku = self._pasanakus[token_id]
     amount: uint256 = pasanaku.round_assets
     penalty_assets: uint256 = amount * _MISS_PENALTY_BPS // _BPS_PRECISION
@@ -879,6 +1087,9 @@ def _settle_round(
             recipient_payout += amount
             continue
 
+        principal_shares: uint256 = staticcall _VAULT.previewWithdraw(
+            amount
+        )
         needed_shares: uint256 = staticcall _VAULT.previewWithdraw(
             amount + penalty_assets
         )
@@ -887,7 +1098,10 @@ def _settle_round(
         reserved_assets: uint256 = 0
         funded_assets: uint256 = 0
 
-        if locked < needed_shares:
+        if (
+            locked < principal_shares
+            or staticcall _VAULT.maxWithdraw(self) < amount
+        ):
             if locked > 0:
                 funded_assets = extcall _VAULT.redeem(
                     locked, self, self
@@ -898,14 +1112,27 @@ def _settle_round(
             burned_shares: uint256 = extcall _VAULT.withdraw(
                 amount, self, self
             )
+            assert locked >= burned_shares  # dev: bad vault withdrawal
             assert needed_shares >= burned_shares  # dev: bad vault preview
             penalty_shares = needed_shares - burned_shares
-            self._locked_shares[token_id][participant] -= needed_shares
-            self._locked_asset_basis[token_id][participant] -= (
-                amount + penalty_assets
+            if penalty_assets > 0:
+                explicit_penalty_shares: uint256 = staticcall _VAULT.previewWithdraw(
+                    penalty_assets
+                )
+                if explicit_penalty_shares > penalty_shares:
+                    penalty_shares = explicit_penalty_shares
+            penalty_shares = min(
+                penalty_shares, locked - burned_shares
             )
+            self._locked_shares[token_id][participant] -= (
+                burned_shares + penalty_shares
+            )
+            basis_reduction: uint256 = amount
+            if penalty_shares > 0:
+                basis_reduction += penalty_assets
+                reserved_assets = penalty_assets
+            self._locked_asset_basis[token_id][participant] -= basis_reduction
             self._pool_reserve_shares[token_id] += penalty_shares
-            reserved_assets = penalty_assets
             funded_assets = amount
 
         self._pool_escrow[token_id] += funded_assets
@@ -926,13 +1153,26 @@ def _settle_round(
 def _accrue_recipient_payout(
     token_id: uint256, round_idx: uint256, payout: uint256
 ):
+    """
+    @dev Moves a settled amount from pool escrow into the round's pending
+        payout balance.
+    @param token_id The pasanaku identifier.
+    @param round_idx The zero-based round index being accrued.
+    @param payout The underlying asset amount made claimable.
+    """
     assert self._pool_escrow[token_id] >= payout  # dev: insufficient escrow
     self._pool_escrow[token_id] -= payout
     self._pending_payout[token_id][round_idx] += payout
 
 
 @internal
-def _settle_pool_collateral(token_id: uint256):
+def _end_pasanaku(token_id: uint256):
+    """
+    @dev Returns participant capital, redeems the yield fee to the owner, and
+        distributes remaining yield by each participant's shuffled position.
+        The final participant receives any integer-division dust.
+    @param token_id The pasanaku identifier to settle.
+    """
     pasanaku: Pasanaku = self._pasanakus[token_id]
     total_shortfall: uint256 = 0
 
@@ -974,8 +1214,19 @@ def _settle_pool_collateral(token_id: uint256):
             if shortfall == shortfall_remaining:
                 allocation = reserve_remaining
             elif total_shortfall > 0:
+                cumulative_before: uint256 = (
+                    total_shortfall - shortfall_remaining
+                )
+                cumulative_after: uint256 = (
+                    cumulative_before + shortfall
+                )
                 allocation = (
-                    shortfall * available_reserve // total_shortfall
+                    cumulative_after
+                    * available_reserve
+                    // total_shortfall
+                    - cumulative_before
+                    * available_reserve
+                    // total_shortfall
                 )
             returned += allocation
             reserve_remaining -= allocation
@@ -986,23 +1237,39 @@ def _settle_pool_collateral(token_id: uint256):
         self._locked_asset_basis[token_id][participant] = 0
 
     self._pool_reserve_shares[token_id] = 0
-    shares_per_participant: uint256 = (
-        surplus // pasanaku.participant_count
+    fee_shares: uint256 = (
+        surplus * pasanaku.yield_fee // _BPS_PRECISION
     )
-    dust: uint256 = surplus % pasanaku.participant_count
+    distributable_yield: uint256 = surplus - fee_shares
+    total_weight: uint256 = (
+        pasanaku.participant_count
+        * (pasanaku.participant_count + 1)
+        // 2
+    )
 
+    if fee_shares > 0:
+        self._collected_fee_shares += fee_shares
+
+    distributed: uint256 = 0
     for i: uint256 in range(
         pasanaku.participant_count, bound=_MAX_PARTICIPANT_COUNT
     ):
         participant: address = pasanaku.participants[i]
-        self._free_shares[participant] += shares_per_participant
+        distribution: uint256 = 0
         if i == pasanaku.participant_count - 1:
-            self._free_shares[participant] += dust
+            distribution = distributable_yield - distributed
+        else:
+            distribution = (
+                distributable_yield * (i + 1) // total_weight
+            )
+        distributed += distribution
+        self._free_shares[participant] += distribution
 
     log PasanakuSurplusDistributed(
         token_id=token_id,
         surplus_shares=surplus,
-        shares_per_participant=shares_per_participant,
+        fee_shares=fee_shares,
+        distributable_yield=distributable_yield,
     )
 
 
@@ -1012,6 +1279,13 @@ def _remove_from_array(
     participants: DynArray[address, _MAX_PARTICIPANT_COUNT],
     target: address,
 ) -> DynArray[address, _MAX_PARTICIPANT_COUNT]:
+    """
+    @dev Removes `target` by replacing it with the final element and shortening
+        the array. Reverts when the target is absent.
+    @param participants The participant array to update.
+    @param target The participant address to remove.
+    @return The participant array with the target removed.
+    """
     length: uint256 = len(participants)
     assert length > 0  # dev: empty participants
 
@@ -1035,6 +1309,13 @@ def _shuffle_array(
     random_seed: uint256,
     participants: DynArray[address, _MAX_PARTICIPANT_COUNT]
 ) -> DynArray[address, _MAX_PARTICIPANT_COUNT]:
+    """
+    @dev Applies a deterministic Fisher-Yates shuffle derived from
+        `random_seed`.
+    @param random_seed The initial seed used to derive swap positions.
+    @param participants The participant array to shuffle.
+    @return The shuffled participant array.
+    """
     length: uint256 = len(participants)
     if length < 1:
         return participants

@@ -121,8 +121,9 @@ If an obligor misses:
    escrow, the participant's locked shares and basis are cleared, and tick
    continues with the partial recovery.
 
-The contract owner does not receive miss penalties. The owner only receives
-native creation fees through `collect_fees`.
+The contract owner does not receive miss penalties. The owner receives native
+creation fees through `collect_fees` and the configured yield fee when a pool
+ends.
 
 ## End settlement
 
@@ -132,9 +133,13 @@ The last tick settles collateral in this order:
 2. Use reserve shares to cover principal shortfalls.
 3. If reserve is insufficient, allocate it proportionally across shortfalls.
 4. Collect participant yield and unused reserve as surplus.
-5. Credit surplus equally to all participants' free shares; integer dust goes
-   to the final participant.
-6. Clear locked shares, asset bases, and pool reserve.
+5. Calculate the fee from surplus shares and redeem those shares directly to
+   the owner as underlying assets.
+6. Distribute the remaining yield by shuffled position using
+   `distributable_yield * (i + 1) // total_weight`, where
+   `total_weight = participant_count * (participant_count + 1) // 2`.
+   Integer dust goes to the final participant.
+7. Clear locked shares, asset bases, and pool reserve.
 
 Round or end settlement does not revert solely because the vault lost value.
 
@@ -161,6 +166,7 @@ reflects not-created, pending, stale, ongoing, and ended states.
 - Round duration: `40 days`
 - Stale bounds: `3` to `7 days`
 - Creation fee cap: `0.001 ETH`
+- Yield fee cap: `505` bps
 - ERC-1155 amount per participant: `1`
 
 Write **onchain** as one word.
