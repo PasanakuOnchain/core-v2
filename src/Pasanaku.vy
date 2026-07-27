@@ -593,6 +593,9 @@ def tick(token_id: uint256):
     @dev Settles the current round, accrues its recipient payout, advances the
         pool, and finalizes collateral after the last round.
     @notice Advances a pasanaku after the current round interval has elapsed.
+        Reverts when the vault cannot currently withdraw the assets needed to
+        cover this round's collateral conversions; retry after liquidity
+        expands. Does not wipe solvent locked collateral for temporary limits.
     @param token_id The pasanaku identifier.
     """
     assert token_id < self._counter  # dev: invalid token id
@@ -690,8 +693,9 @@ def set_fee(fee_: uint256):
 @external
 def set_yield_fee(yield_fee_: uint256):
     """
-    @dev Sets the fee charged on surplus vault shares when a pool ends.
-        Restricted to the owner and capped by `_MAX_YIELD_FEE`.
+    @dev Sets the fee charged on vault yield (locked shares above remaining
+        asset basis) when a pool ends. Miss-penalty reserve leftovers are not
+        fee-eligible. Restricted to the owner and capped by `_MAX_YIELD_FEE`.
     @notice Updates the protocol fee charged on pasanaku yield.
     @param yield_fee_ The new yield fee in basis points.
     """
@@ -1067,6 +1071,9 @@ def _settle_round(
     """
     @dev Counts deposited obligations toward the payout and covers missed
         obligations from collateral, reserving available penalty shares.
+        Vault liquidity shortfalls revert the whole tick via the vault call so
+        callers can retry after limits expand; they do not confiscate solvent
+        collateral.
     @param token_id The pasanaku identifier.
     @param round_idx The zero-based round index being settled.
     @param recipient The participant designated to receive the round payout.
@@ -1097,11 +1104,11 @@ def _settle_round(
         penalty_shares: uint256 = 0
         reserved_assets: uint256 = 0
         funded_assets: uint256 = 0
+        recoverable: uint256 = 0
+        if locked > 0:
+            recoverable = staticcall _VAULT.previewRedeem(locked)
 
-        if (
-            locked < principal_shares
-            or staticcall _VAULT.maxWithdraw(self) < amount
-        ):
+        if locked < principal_shares or recoverable < amount:
             if locked > 0:
                 funded_assets = extcall _VAULT.redeem(
                     locked, self, self
@@ -1127,11 +1134,17 @@ def _settle_round(
             self._locked_shares[token_id][participant] -= (
                 burned_shares + penalty_shares
             )
-            basis_reduction: uint256 = amount
+            if self._locked_shares[token_id][participant] == 0:
+                self._locked_asset_basis[token_id][participant] = 0
+            else:
+                basis_reduction: uint256 = amount
+                if penalty_assets > 0:
+                    basis_reduction += penalty_assets
+                self._locked_asset_basis[token_id][participant] -= (
+                    basis_reduction
+                )
             if penalty_shares > 0:
-                basis_reduction += penalty_assets
                 reserved_assets = penalty_assets
-            self._locked_asset_basis[token_id][participant] -= basis_reduction
             self._pool_reserve_shares[token_id] += penalty_shares
             funded_assets = amount
 
@@ -1168,9 +1181,11 @@ def _accrue_recipient_payout(
 @internal
 def _end_pasanaku(token_id: uint256):
     """
-    @dev Returns participant capital, redeems the yield fee to the owner, and
-        distributes remaining yield by each participant's shuffled position.
-        The final participant receives any integer-division dust.
+    @dev Returns participant capital, charges the yield fee only on vault yield
+        (locked shares above remaining asset basis), returns leftover miss-
+        penalty reserve without a fee, and distributes the remainder by each
+        participant's shuffled position. The final participant receives any
+        integer-division dust.
     @param token_id The pasanaku identifier to settle.
     """
     pasanaku: Pasanaku = self._pasanakus[token_id]
@@ -1192,7 +1207,8 @@ def _end_pasanaku(token_id: uint256):
     available_reserve: uint256 = min(reserve, total_shortfall)
     reserve_remaining: uint256 = available_reserve
     shortfall_remaining: uint256 = total_shortfall
-    surplus: uint256 = reserve - available_reserve
+    leftover_reserve: uint256 = reserve - available_reserve
+    yield_surplus: uint256 = 0
 
     for i: uint256 in range(
         pasanaku.participant_count, bound=_MAX_PARTICIPANT_COUNT
@@ -1207,7 +1223,7 @@ def _end_pasanaku(token_id: uint256):
 
         if locked >= required:
             returned = required
-            surplus += locked - required
+            yield_surplus += locked - required
         else:
             shortfall: uint256 = required - locked
             allocation: uint256 = 0
@@ -1238,9 +1254,12 @@ def _end_pasanaku(token_id: uint256):
 
     self._pool_reserve_shares[token_id] = 0
     fee_shares: uint256 = (
-        surplus * pasanaku.yield_fee // _BPS_PRECISION
+        yield_surplus * pasanaku.yield_fee // _BPS_PRECISION
     )
-    distributable_yield: uint256 = surplus - fee_shares
+    distributable_yield: uint256 = (
+        yield_surplus - fee_shares
+    ) + leftover_reserve
+    surplus: uint256 = yield_surplus + leftover_reserve
     total_weight: uint256 = (
         pasanaku.participant_count
         * (pasanaku.participant_count + 1)

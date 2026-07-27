@@ -36,10 +36,16 @@ exports: (
 _ASSET: immutable(IERC20)
 
 
+# @dev Optional cap on assets withdrawable in one tick (max = unlimited).
+#      Models Fluid-style temporary withdrawal limits for tests.
+_withdraw_limit: uint256
+
+
 @deploy
 @payable
 def __init__(asset_: IERC20):
     _ASSET = asset_
+    self._withdraw_limit = max_value(uint256)
     ow.__init__()
     erc20.__init__("Vault Share", "vSHR", 6, "vault-share", "1")
 
@@ -120,7 +126,7 @@ def mint(shares: uint256, receiver: address) -> uint256:
 @external
 @view
 def maxWithdraw(owner: address) -> uint256:
-    return self._convert_to_assets(erc20.balanceOf[owner])
+    return self._max_withdraw(owner)
 
 
 @external
@@ -132,6 +138,7 @@ def previewWithdraw(assets: uint256) -> uint256:
 @external
 def withdraw(assets: uint256, receiver: address, owner: address) -> uint256:
     assert assets > 0  # dev: invalid assets
+    assert assets <= self._max_withdraw(owner)  # dev: exceed withdraw limit
     shares: uint256 = self._convert_to_shares(assets, True)
     if msg.sender != owner:
         erc20._spend_allowance(owner, msg.sender, shares)
@@ -146,7 +153,7 @@ def withdraw(assets: uint256, receiver: address, owner: address) -> uint256:
 @external
 @view
 def maxRedeem(owner: address) -> uint256:
-    return erc20.balanceOf[owner]
+    return self._max_redeem(owner)
 
 
 @external
@@ -158,9 +165,11 @@ def previewRedeem(shares: uint256) -> uint256:
 @external
 def redeem(shares: uint256, receiver: address, owner: address) -> uint256:
     assert shares > 0  # dev: invalid shares
+    assets: uint256 = self._convert_to_assets(shares)
+    # Worthless shares need no liquidity; otherwise cap asset outflow.
+    assert assets <= self._max_withdraw(owner)  # dev: exceed redeem limit
     if msg.sender != owner:
         erc20._spend_allowance(owner, msg.sender, shares)
-    assets: uint256 = self._convert_to_assets(shares)
     erc20._burn(owner, shares)
     success: bool = extcall _ASSET.transfer(
         receiver, assets, default_return_value=True
@@ -178,12 +187,42 @@ def donate(assets: uint256):
 
 
 @external
+def set_withdraw_limit(limit: uint256):
+    """
+    @dev Caps assets withdrawable via withdraw/redeem (and maxWithdraw).
+    @param limit Asset cap; use max_value(uint256) to clear.
+    """
+    ow._check_owner()
+    self._withdraw_limit = limit
+
+
+@external
 def remove_assets(receiver: address, assets: uint256):
     ow._check_owner()
     success: bool = extcall _ASSET.transfer(
         receiver, assets, default_return_value=True
     )
     assert success  # dev: transfer failed
+
+
+@internal
+@view
+def _max_withdraw(owner: address) -> uint256:
+    balance_assets: uint256 = self._convert_to_assets(erc20.balanceOf[owner])
+    return min(balance_assets, self._withdraw_limit)
+
+
+@internal
+@view
+def _max_redeem(owner: address) -> uint256:
+    balance: uint256 = erc20.balanceOf[owner]
+    # Worthless share balances are fully redeemable (no asset outflow).
+    if self._convert_to_assets(balance) == 0:
+        return balance
+    return min(
+        balance,
+        self._convert_to_shares(self._max_withdraw(owner), False),
+    )
 
 
 @internal

@@ -3,7 +3,11 @@ import pytest
 
 from src import Pasanaku as pasanaku
 from tests.mocks import erc20_mock, erc4626_mock
-from tests.utils.constants import PASANAKU_AMOUNT_RAW, PARTICIPANT_COUNT
+from tests.utils.constants import (
+    MAX_YIELD_FEE,
+    PASANAKU_AMOUNT_RAW,
+    PARTICIPANT_COUNT,
+)
 from tests.utils.helpers import create_and_join_all
 
 boa.env.enable_fast_mode()
@@ -35,7 +39,7 @@ def pasanaku_contract(owner, usdc_contract, vault_contract):
             usdc_contract.address,
             vault_contract.address,
             0,
-            505,
+            MAX_YIELD_FEE,
         )
 
 

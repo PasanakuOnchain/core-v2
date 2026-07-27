@@ -585,10 +585,56 @@ def test_miss_reserves_remaining_tip_when_principal_is_still_covered(
     )
     assert pasanaku_contract.locked_shares(token_id, defaulter) == 0
     assert pasanaku_contract.pool_reserve_shares(token_id) == remaining_tip_shares
-    assert (
-        pasanaku_contract.locked_asset_basis(token_id, defaulter)
-        == pledge(amount) - amount - penalty
+    assert pasanaku_contract.locked_asset_basis(token_id, defaulter) == 0
+
+
+def test_end_does_not_fee_skim_leftover_miss_penalty_reserve(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
+    owner,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    participants = pasanaku_contract.pasanaku(token_id).participants
+    recipient = participants[0]
+    defaulter = next(user for user in users if user != recipient)
+
+    _deposit_except(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users,
+        recipient,
+        defaulter,
+        amount,
+        token_id,
     )
+    boa.env.time_travel(seconds=DAYS_40)
+    pasanaku_contract.tick(token_id)
+    assert pasanaku_contract.pool_reserve_shares(token_id) > 0
+
+    for round_idx in range(1, PARTICIPANT_COUNT):
+        deposit_all_obligors(
+            pasanaku_contract,
+            token_id,
+            users,
+            round_idx,
+            usdc_contract,
+            owner,
+            amount,
+        )
+        boa.env.time_travel(seconds=DAYS_40)
+        pasanaku_contract.tick(token_id)
+
+    assert pasanaku_contract.pasanaku(token_id).ended != 0
+    assert pasanaku_contract.pool_reserve_shares(token_id) == 0
+    assert pasanaku_contract.eval("self._collected_fee_shares") == 0
+    assert sum(
+        pasanaku_contract.free_shares(user) for user in users
+    ) == vault_contract.balanceOf(pasanaku_contract.address)
 
 
 def test_underwater_miss_settles_partial_payout_and_pool_can_finish(
@@ -703,3 +749,93 @@ def test_empty_vault_miss_does_not_block_pool_completion(
 def test_tick_too_early_reverts(pasanaku_contract, started_pasanaku):
     with boa.reverts(dev="not enough time passed"):
         pasanaku_contract.tick(started_pasanaku["token_id"])
+
+
+def test_throttled_vault_liquidity_reverts_tick_without_wiping_collateral(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
+    owner,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    defaulter = next(user for user in users if user != recipient)
+
+    _deposit_except(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users,
+        recipient,
+        defaulter,
+        amount,
+        token_id,
+    )
+    boa.env.time_travel(seconds=DAYS_40)
+
+    before_locked = pasanaku_contract.locked_shares(token_id, defaulter)
+    before_basis = pasanaku_contract.locked_asset_basis(token_id, defaulter)
+    before_index = pasanaku_contract.pasanaku(token_id).index
+    before_escrow = pasanaku_contract.pool_escrow(token_id)
+
+    with boa.env.prank(owner):
+        vault_contract.set_withdraw_limit(amount - 1)
+
+    with boa.reverts(dev="exceed withdraw limit"):
+        pasanaku_contract.tick(token_id)
+
+    assert pasanaku_contract.locked_shares(token_id, defaulter) == before_locked
+    assert pasanaku_contract.locked_asset_basis(token_id, defaulter) == before_basis
+    assert pasanaku_contract.pasanaku(token_id).index == before_index
+    assert pasanaku_contract.pool_escrow(token_id) == before_escrow
+    assert pasanaku_contract.pending_payout(token_id, 0) == 0
+    assert pasanaku_contract.pool_reserve_shares(token_id) == 0
+
+
+def test_tick_succeeds_after_vault_liquidity_limit_cleared(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
+    owner,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    defaulter = next(user for user in users if user != recipient)
+
+    _deposit_except(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users,
+        recipient,
+        defaulter,
+        amount,
+        token_id,
+    )
+    boa.env.time_travel(seconds=DAYS_40)
+
+    with boa.env.prank(owner):
+        vault_contract.set_withdraw_limit(amount - 1)
+
+    with boa.reverts(dev="exceed withdraw limit"):
+        pasanaku_contract.tick(token_id)
+
+    with boa.env.prank(owner):
+        vault_contract.set_withdraw_limit(2**256 - 1)
+
+    pasanaku_contract.tick(token_id)
+
+    assert pasanaku_contract.pasanaku(token_id).index == 1
+    assert pasanaku_contract.pending_payout(token_id, 0) == amount * (
+        PARTICIPANT_COUNT - 1
+    )
+    assert pasanaku_contract.locked_asset_basis(token_id, defaulter) == pledge(
+        amount
+    ) - amount - penalty_per_amount(amount)
+    assert pasanaku_contract.pool_reserve_shares(token_id) > 0

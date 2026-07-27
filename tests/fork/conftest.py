@@ -8,6 +8,7 @@ from tests.fork.helpers import load_erc20, load_fluid_fusdc
 from tests.utils.constants import (
     MAINNET_FLUID_FUSDC,
     MAINNET_USDC,
+    MAX_YIELD_FEE,
     PASANAKU_AMOUNT_RAW,
     PARTICIPANT_COUNT,
 )
@@ -119,7 +120,7 @@ def pasanaku_contract(
             usdc_contract.address,
             vault_contract.address,
             0,
-            505,
+            MAX_YIELD_FEE,
         )
 
 

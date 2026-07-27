@@ -17,8 +17,10 @@ def test_deploy_uses_one_asset_and_vault(
     usdc_contract,
     vault_contract,
 ):
-    assert pasanaku_contract.asset() == usdc_contract.address
-    assert pasanaku_contract.vault() == vault_contract.address
+    assert pasanaku_contract._immutables._ASSET == usdc_contract.address
+    assert pasanaku_contract._immutables._VAULT == vault_contract.address
+    assert pasanaku_contract.asset() == pasanaku_contract._immutables._ASSET
+    assert pasanaku_contract.vault() == pasanaku_contract._immutables._VAULT
 
 
 @pytest.mark.parametrize("participant_count", [5, 7, 11, 13])
