@@ -89,7 +89,7 @@ def deposit_all_obligors(
     owner,
     amount_raw,
 ):
-    recipient = users[round_idx]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[round_idx]
     for user in users:
         if user == recipient:
             continue
@@ -102,7 +102,7 @@ def deposit_all_obligors(
 
 def tick_and_claim(pasanaku_contract, token_id, round_idx, users):
     pasanaku_contract.tick(token_id)
-    recipient = users[round_idx]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[round_idx]
     with boa.env.prank(recipient):
         pasanaku_contract.claim_round_payout(token_id, round_idx)
 

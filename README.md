@@ -16,7 +16,8 @@ vault. The creator chooses a six- or twelve-participant pool.
    `pledge(round_assets, participant_count)`.
 3. The pool starts automatically when it reaches its configured size.
    Pre-start vault appreciation is returned to each depositor's free shares;
-   distributable pool yield starts at this point.
+   the recipient roster is shuffled; distributable pool yield starts at this
+   point.
 4. During each 40-day round, every participant except the current recipient
    deposits exactly `round_assets`.
 5. Anyone may call `tick` after the round deadline. The recipient then pulls
@@ -57,11 +58,13 @@ pledge = principal + penalty_headroom
 
 If an obligor misses a round:
 
-1. `round_assets` is withdrawn from that participant's locked vault shares so
-   the recipient still receives the full `(N - 1) * round_assets` payout.
-2. Shares worth `round_assets * 5 / 10_000` move from the participant's locked
-   balance to the pool reserve.
-3. No miss penalty is sent to the contract owner.
+1. Principal plus penalty is priced with one vault preview to keep share
+   rounding aligned.
+2. If collateral is sufficient, `round_assets` is withdrawn and the penalty
+   shares move to the pool reserve.
+3. If collateral is underwater, all remaining locked shares are redeemed; the
+   recipient receives that partial recovery and the round still progresses.
+4. No miss penalty is sent to the contract owner.
 
 Round contributions remain liquid ERC-20 escrow. `tick` moves their accounting
 from `pool_escrow` to `pending_payout`; the recipient claims later.
@@ -74,6 +77,8 @@ from `pool_escrow` to `pending_payout`; the recipient claims later.
   loss or rounding.
 - If the reserve cannot cover the full shortfall, the available reserve is
   allocated proportionally and settlement still completes.
+- Mid-round vault loss also settles without freezing `tick`; an underwater
+  misser can reduce that round's payout to the assets actually recovered.
 - Any reserve remainder joins vault yield in the equal participant split.
 
 Integrators must evaluate the configured vault independently. This contract
@@ -111,7 +116,8 @@ Pasanaku(asset, vault, creation_fee_wei)
 It verifies that `vault.asset()` matches `asset`. The owner may set:
 
 - Creation fee: `set_fee`, capped at `0.001 ETH`.
-- Pending-pool stale time: `set_stale_time`, from 3 to 7 days.
+- Pending-pool stale time for future pools: `set_stale_time`, from 3 to 7 days.
+  Each pool snapshots the value at creation and rejects new joins once stale.
 
 `collect_fees` transfers accumulated native creation fees to `owner()`.
 It never transfers ERC-20 reserve shares.

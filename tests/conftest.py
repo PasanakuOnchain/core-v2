@@ -66,6 +66,7 @@ def pasanaku_contract(owner, usdc_contract, vault_contract):
             usdc_contract.address,
             vault_contract.address,
             0,
+            505,
         )
 
 

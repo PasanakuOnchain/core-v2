@@ -26,6 +26,8 @@ def test_uri_pending_and_stale(
     usdc_contract,
     users,
 ):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
     fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
@@ -40,8 +42,6 @@ def test_uri_pending_and_stale(
             6,
         )
     assert pasanaku_contract.uri(token_id) == URI_PENDING
-    with boa.env.prank(owner):
-        pasanaku_contract.set_stale_time(DAYS_3)
     boa.env.time_travel(seconds=DAYS_3)
     assert pasanaku_contract.uri(token_id) == URI_STALE
 

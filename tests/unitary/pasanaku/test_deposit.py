@@ -16,7 +16,10 @@ def test_obligor_deposit_is_recorded(
 ):
     token_id = started_pasanaku["token_id"]
     amount = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(
+        user for user in started_pasanaku["users"] if user != recipient
+    )
     _fund_round_deposit(
         usdc_contract,
         pasanaku_contract,
@@ -41,7 +44,7 @@ def test_round_recipient_cannot_deposit(
 ):
     token_id = started_pasanaku["token_id"]
     amount = started_pasanaku["amount_raw"]
-    recipient = started_pasanaku["users"][0]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
     _fund_round_deposit(
         usdc_contract,
         pasanaku_contract,
@@ -62,7 +65,10 @@ def test_duplicate_round_deposit_reverts(
 ):
     token_id = started_pasanaku["token_id"]
     amount = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(
+        user for user in started_pasanaku["users"] if user != recipient
+    )
     _fund_round_deposit(
         usdc_contract,
         pasanaku_contract,
@@ -81,7 +87,10 @@ def test_wrong_round_amount_reverts(
     started_pasanaku,
 ):
     token_id = started_pasanaku["token_id"]
-    payer = started_pasanaku["users"][1]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(
+        user for user in started_pasanaku["users"] if user != recipient
+    )
     with boa.reverts(dev="invalid deposit amount"):
         with boa.env.prank(payer):
             pasanaku_contract.deposit_to_pasanaku(

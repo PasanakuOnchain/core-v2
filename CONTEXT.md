@@ -12,7 +12,8 @@ multi-asset or asset-denominated collateral model as current behavior.
 A fixed-membership rotating savings pool identified by `token_id`.
 
 - A creator configures exactly `6` or `12` participants.
-- There are `N` rounds and recipient `k` is `participants[k]`.
+- At start, the participant roster is shuffled using beacon randomness.
+- There are `N` rounds and recipient `k` is shuffled `participants[k]`.
 - The per-round obligation is `round_assets` in raw units of the deployment's
   single immutable ERC-20 asset.
 - Membership becomes fixed when the pool starts.
@@ -88,6 +89,7 @@ At start, the contract recomputes the shares needed for the pledge:
 - Pre-start appreciation returns to the participant's free shares.
 - A pre-start loss requires enough free shares to top up; otherwise start
   reverts.
+- The participant roster is shuffled before recipient positions become final.
 - The fixed asset basis is recorded only after this normalization.
 
 ## Round deposits and pull payouts
@@ -97,8 +99,10 @@ Every non-recipient obligor calls
 
 - Contributions are liquid ERC-20 attributed to `_pool_escrow[token_id]`.
 - After 40 days, permissionless `tick` settles the round.
-- Tick accrues `(N - 1) * round_assets` to
-  `_pending_payout[token_id][round_idx]`.
+- Tick normally accrues `(N - 1) * round_assets` to
+  `_pending_payout[token_id][round_idx]`. If an underwater misser cannot cover
+  the full obligation, tick accrues the liquid deposits plus assets recovered
+  from that participant's remaining shares.
 - The recipient calls `claim_round_payout` to pull the assets.
 - The pool may advance while earlier payouts remain unclaimed.
 
@@ -108,11 +112,14 @@ Do not say that tick transfers the payout directly to the recipient.
 
 If an obligor misses:
 
-1. The vault withdraws `round_assets` from the participant's locked shares into
-   liquid pool escrow. The recipient remains fully funded.
-2. Shares worth the 5-bps penalty move from that participant's locked shares
-   into `_pool_reserve_shares[token_id]`.
-3. The participant's asset basis decreases by principal plus penalty.
+1. The contract prices principal plus the 5-bps penalty with one
+   `previewWithdraw` call so rounding remains aligned.
+2. If locked shares cover the result, the vault withdraws `round_assets` into
+   liquid pool escrow and the remaining penalty shares move into
+   `_pool_reserve_shares[token_id]`.
+3. If locked shares are insufficient, all remaining shares are redeemed into
+   escrow, the participant's locked shares and basis are cleared, and tick
+   continues with the partial recovery.
 
 The contract owner does not receive miss penalties. The owner only receives
 native creation fees through `collect_fees`.
@@ -129,16 +136,17 @@ The last tick settles collateral in this order:
    to the final participant.
 6. Clear locked shares, asset bases, and pool reserve.
 
-Settlement does not revert solely because the vault lost value.
+Round or end settlement does not revert solely because the vault lost value.
 
 ## Pending pools
 
-A pool is pending while `started == 0`. After `created + stale_time`,
-participants may leave individually. Leaving returns that participant's locked
-shares to free shares.
+A pool is pending while `started == 0`. Each pool snapshots `stale_time` when
+it is created. After `created + stale_time`, the pool becomes exit-only: new
+joins revert and existing participants may leave individually. Leaving returns
+that participant's locked shares to free shares.
 
 `stale_time` defaults to seven days and is owner-configurable between three and
-seven days.
+seven days. An update applies only to pools created after the change.
 
 ## ERC-1155 membership
 

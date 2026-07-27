@@ -1,7 +1,7 @@
 import boa
 import pytest
 
-from tests.utils.constants import DAYS_3, PASANAKU_AMOUNT_RAW
+from tests.utils.constants import DAYS_3, DAYS_7, PASANAKU_AMOUNT_RAW
 from tests.utils.helpers import (
     create_and_join_all,
     create_pasanaku,
@@ -54,6 +54,7 @@ def test_pasanaku_starts_at_configured_size(
     state = pasanaku_contract.pasanaku(token_id)
     assert state.participant_count == participant_count
     assert len(state.participants) == participant_count
+    assert set(state.participants) == set(participants)
     assert state.started != 0
 
 
@@ -134,6 +135,8 @@ def test_leave_stale_pool_returns_locked_shares(
     owner,
     users,
 ):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
     fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
@@ -152,11 +155,89 @@ def test_leave_stale_pool_returns_locked_shares(
         pasanaku_contract.join_pasanaku(token_id)
     locked = pasanaku_contract.locked_shares(token_id, users[1])
 
-    with boa.env.prank(owner):
-        pasanaku_contract.set_stale_time(DAYS_3)
     boa.env.time_travel(seconds=DAYS_3)
     with boa.env.prank(users[1]):
         pasanaku_contract.leave_pasanaku(token_id)
 
     assert pasanaku_contract.locked_shares(token_id, users[1]) == 0
     assert pasanaku_contract.free_shares(users[1]) == locked
+
+
+def test_join_stale_pool_reverts_and_leave_still_works(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
+):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
+    fund_collateral_for_users(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[:3],
+        PASANAKU_AMOUNT_RAW,
+        6,
+    )
+    with boa.env.prank(users[0]):
+        token_id = create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            6,
+        )
+    with boa.env.prank(users[1]):
+        pasanaku_contract.join_pasanaku(token_id)
+
+    boa.env.time_travel(seconds=DAYS_3)
+    with boa.reverts(dev="pasanaku is stale"):
+        with boa.env.prank(users[2]):
+            pasanaku_contract.join_pasanaku(token_id)
+    with boa.env.prank(users[1]):
+        pasanaku_contract.leave_pasanaku(token_id)
+
+    assert users[1] not in pasanaku_contract.pasanaku(token_id).participants
+
+
+def test_stale_time_is_snapshotted_per_pool(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
+):
+    fund_collateral_for_users(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[:2],
+        PASANAKU_AMOUNT_RAW,
+        6,
+    )
+    with boa.env.prank(users[0]):
+        original_token_id = create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            6,
+        )
+    with boa.env.prank(users[1]):
+        pasanaku_contract.join_pasanaku(original_token_id)
+
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
+    assert pasanaku_contract.pasanaku(original_token_id).stale_time == DAYS_7
+
+    boa.env.time_travel(seconds=DAYS_3)
+    with boa.reverts(dev="pasanaku is not stale"):
+        with boa.env.prank(users[1]):
+            pasanaku_contract.leave_pasanaku(original_token_id)
+
+    boa.env.time_travel(seconds=DAYS_7 - DAYS_3)
+    with boa.env.prank(users[1]):
+        pasanaku_contract.leave_pasanaku(original_token_id)
+
+    with boa.env.prank(users[1]):
+        new_token_id = create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            6,
+        )
+    assert pasanaku_contract.pasanaku(new_token_id).stale_time == DAYS_3
