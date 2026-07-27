@@ -1,63 +1,23 @@
 from typing import List
 
 from moccasin.boa_tools import VyperContract
-
-from tests.mocks import erc20_mock
-
-mock_tokens = [
-    {
-        "name": "USDC",
-        "symbol": "USDC",
-        "decimals": 6,
-        "initial_supply": int(10_000 * 10**6),
-        "name_eip712": "fake-usdc",
-        "version_eip712": "1",
-    },
-    {
-        "name": "USDT",
-        "symbol": "USDT",
-        "decimals": 6,
-        "initial_supply": int(10_000 * 10**6),
-        "name_eip712": "fake-usdt",
-        "version_eip712": "1",
-    },
-    {
-        "name": "Wrapped ETH",
-        "symbol": "WETH",
-        "decimals": 18,
-        "initial_supply": int(10_000 * 10**18),
-        "name_eip712": "fake-weth",
-        "version_eip712": "1",
-    },
-    {
-        "name": "DAI",
-        "symbol": "DAI",
-        "decimals": 18,
-        "initial_supply": int(10_000 * 10**18),
-        "name_eip712": "fake-dai",
-        "version_eip712": "1",
-    },
-]
+from tests.mocks import erc20_mock, erc4626_mock
 
 
 def deploy_mocks() -> List[VyperContract]:
-    contracts = []
-    print("--------- DEPLOYING MOCKS ---------")
-    print(f"Deploying {len(mock_tokens)} mock tokens")
-    print("")
-    for token in mock_tokens:
-        print(f"Deploying {token['name']} ({token['symbol']})")
-        contract = erc20_mock.deploy(
-            token["name"],
-            token["symbol"],
-            token["decimals"],
-            token["initial_supply"],
-            token["name_eip712"],
-            token["version_eip712"],
-        )
-        print(f"Address: {contract.address} \n")
-        contracts.append(contract)
-    return contracts
+    print("--------- DEPLOYING MOCK ASSET + VAULT ---------")
+    asset = erc20_mock.deploy(
+        "USD Coin",
+        "USDC",
+        6,
+        10_000,
+        "fake-usdc",
+        "1",
+    )
+    vault = erc4626_mock.deploy(asset.address)
+    print(f"Asset: {asset.address}")
+    print(f"Vault: {vault.address}")
+    return [asset, vault]
 
 
 def moccasin_main() -> List[VyperContract]:

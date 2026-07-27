@@ -1,238 +1,162 @@
 import boa
+import pytest
 
-from tests.utils.constants import (
-    DAYS_3,
-    DAYS_40,
-    PARTICIPANT_COUNT,
-    PASANAKU_AMOUNT_RAW,
-)
+from tests.utils.constants import DAYS_3, PASANAKU_AMOUNT_RAW
 from tests.utils.helpers import (
     create_and_join_all,
     create_pasanaku,
+    donate_yield,
     fund_collateral_for_users,
+    generate_users,
     pledge,
-    token_id_from_last_started,
 )
 
 
-def test_deploy_supported_assets_and_participant_count(
-    pasanaku_contract, usdc_contract, usdt_contract, weth_contract, dai_contract
+def test_deploy_uses_one_asset_and_vault(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
 ):
-    assets = pasanaku_contract.supported_assets()
-    assert assets[0] == usdc_contract.address
-    assert assets[1] == usdt_contract.address
-    assert assets[2] == weth_contract.address
-    assert assets[3] == dai_contract.address
-    assert pasanaku_contract.participant_count() == PARTICIPANT_COUNT
+    assert pasanaku_contract.asset() == usdc_contract.address
+    assert pasanaku_contract.vault() == vault_contract.address
 
 
-def test_create_first_pasanaku_returns_zero(
-    pasanaku_contract, users, owner, usdc_contract
+@pytest.mark.parametrize("participant_count", [5, 7, 11, 13])
+def test_create_rejects_unsupported_participant_count(
+    pasanaku_contract,
+    users,
+    participant_count,
 ):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
-    )
-    with boa.env.prank(users[0]):
-        idx = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-    assert idx == 0
-
-
-def test_create_pasanaku_emits_event(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-    with boa.env.prank(creator):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-
-    created = [
-        log
-        for log in pasanaku_contract.get_logs()
-        if type(log).__name__ == "PasanakuCreated"
-    ]
-    assert len(created) == 1
-    assert created[0].token_id == token_id
-    assert created[0].asset == usdc_contract.address
-    assert created[0].amount == amount_raw
-
-
-def test_create_insufficient_collateral_reverts(
-    pasanaku_contract, owner, usdc_contract, users
-):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    need = pledge(amount_raw)
-    creator = users[0]
-    with boa.env.prank(owner):
-        usdc_contract.mint(creator, need - 1)
-    with boa.env.prank(creator):
-        usdc_contract.approve(pasanaku_contract.address, need - 1)
-        pasanaku_contract.add_collateral(usdc_contract.address, need - 1)
-    with boa.reverts(dev="insufficient collateral # nosplit"):
-        with boa.env.prank(creator):
-            create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-
-
-def test_create_unsupported_asset_reverts(pasanaku_contract, users):
-    fake_asset = boa.env.generate_address()
-    with boa.reverts(dev="unsupported asset"):
+    with boa.reverts(dev="invalid participant count"):
         with boa.env.prank(users[0]):
-            create_pasanaku(pasanaku_contract, fake_asset, PASANAKU_AMOUNT_RAW)
+            pasanaku_contract.create_pasanaku(
+                PASANAKU_AMOUNT_RAW,
+                participant_count,
+            )
 
 
-def test_create_zero_amount_reverts(pasanaku_contract, users, usdc_contract):
-    with boa.reverts(dev="invalid amount"):
-        with boa.env.prank(users[0]):
-            create_pasanaku(pasanaku_contract, usdc_contract.address, 0)
-
-
-def test_join_insufficient_collateral_reverts(
-    pasanaku_contract, owner, usdc_contract, users
+@pytest.mark.parametrize("participant_count", [6, 12])
+def test_pasanaku_starts_at_configured_size(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    participant_count,
 ):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    need = pledge(amount_raw)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
+    participants = generate_users(participant_count)
+    token_id = create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        participants,
+        PASANAKU_AMOUNT_RAW,
+        participant_count,
     )
-    with boa.env.prank(users[0]):
-        pending_idx = create_pasanaku(
-            pasanaku_contract, usdc_contract.address, amount_raw
-        )
-
-    u = users[1]
-    with boa.env.prank(owner):
-        usdc_contract.mint(u, need - 1)
-    with boa.env.prank(u):
-        usdc_contract.approve(pasanaku_contract.address, need - 1)
-        pasanaku_contract.add_collateral(usdc_contract.address, need - 1)
-    with boa.reverts(dev="insufficient collateral # nosplit"):
-        with boa.env.prank(u):
-            pasanaku_contract.join_pasanaku(pending_idx)
+    state = pasanaku_contract.pasanaku(token_id)
+    assert state.participant_count == participant_count
+    assert len(state.participants) == participant_count
+    assert state.started != 0
 
 
-def test_join_duplicate_reverts(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    create_and_join_all(
+def test_create_and_join_lock_shares(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
+):
+    needed = pledge(PASANAKU_AMOUNT_RAW, 6)
+    fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
         owner,
         users[:2],
-        amount_raw,
-    )
-    pending_idx = 0
-    with boa.reverts(dev="participant already joined # nosplit"):
-        with boa.env.prank(users[0]):
-            pasanaku_contract.join_pasanaku(pending_idx)
-
-
-def test_join_emits_event(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
+        PASANAKU_AMOUNT_RAW,
+        6,
     )
     with boa.env.prank(users[0]):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
+        token_id = create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            6,
+        )
     with boa.env.prank(users[1]):
         pasanaku_contract.join_pasanaku(token_id)
-
-    joined = [
-        log
-        for log in pasanaku_contract.get_logs()
-        if type(log).__name__ == "PasanakuJoined"
-    ]
-    assert len(joined) == 1
-    assert joined[0].token_id == token_id
-    assert joined[0].account == users[1]
-    assert joined[0].participant_count == 2
+    assert pasanaku_contract.locked_shares(token_id, users[0]) == needed
+    assert pasanaku_contract.locked_shares(token_id, users[1]) == needed
 
 
-def test_full_join_starts_pasanaku(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    create_and_join_all(
+def test_pre_start_yield_remains_with_depositor(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
+    owner,
+    users,
+):
+    amount = PASANAKU_AMOUNT_RAW
+    fund_collateral_for_users(
         pasanaku_contract,
         usdc_contract,
         owner,
-        users,
-        amount_raw,
-    )
-    join_logs = pasanaku_contract.get_logs()
-    started = [log for log in join_logs if type(log).__name__ == "PasanakuStarted"]
-    assert len(started) == 1
-    tid = started[0].token_id
-    assert started[0].asset == usdc_contract.address
-    assert started[0].amount == amount_raw
-
-    st = pasanaku_contract.pasanaku(tid)
-    assert st.started != 0
-    assert st.ended == 0
-
-
-def test_leave_pasanaku_before_stale_reverts(
-    pasanaku_contract, owner, usdc_contract, users
-):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, users[:2], amount_raw
+        users[:5],
+        amount,
+        6,
     )
     with boa.env.prank(users[0]):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-    with boa.env.prank(users[1]):
-        pasanaku_contract.join_pasanaku(token_id)
-
-    with boa.reverts(dev="pasanaku is not stale"):
-        with boa.env.prank(users[1]):
-            pasanaku_contract.leave_pasanaku(token_id)
-
-
-def test_leave_stale_pending_pasanaku_removes_participant_and_unlocks_collateral(
-    pasanaku_contract, owner, usdc_contract, users
-):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    locked = pledge(amount_raw)
-    users = users[:3]
-    leaver = users[1]
-    remaining = [users[0], users[2]]
-
-    with boa.env.prank(owner):
-        pasanaku_contract.set_stale_time(DAYS_3)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, users, amount_raw
-    )
-    with boa.env.prank(users[0]):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-    for user in users[1:]:
+        token_id = create_pasanaku(pasanaku_contract, amount, 6)
+    for user in users[1:5]:
         with boa.env.prank(user):
             pasanaku_contract.join_pasanaku(token_id)
 
-    boa.env.time_travel(seconds=DAYS_3)
-    with boa.env.prank(leaver):
-        pasanaku_contract.leave_pasanaku(token_id)
+    donate_yield(
+        vault_contract,
+        usdc_contract,
+        owner,
+        pledge(amount, 6) // 10,
+    )
+    last_deposit = pledge(amount, 6) + 2
+    with boa.env.prank(owner):
+        usdc_contract.mint(users[5], last_deposit)
+    with boa.env.prank(users[5]):
+        usdc_contract.approve(pasanaku_contract.address, last_deposit)
+        pasanaku_contract.deposit(last_deposit, users[5])
+    with boa.env.prank(users[5]):
+        pasanaku_contract.join_pasanaku(token_id)
 
-    left = [
-        log
-        for log in pasanaku_contract.get_logs()
-        if type(log).__name__ == "PasanakuLeft"
-    ]
-    assert any(log.account == leaver for log in left)
-
-    st = pasanaku_contract.pasanaku(token_id)
-    assert len(st.participants) == 2
-    assert leaver not in st.participants
-    assert set(st.participants) == set(remaining)
-    assert pasanaku_contract.collateral_in_use(leaver, usdc_contract.address) == 0
-    assert pasanaku_contract.free_collateral(leaver, usdc_contract.address) == locked
-    for user in remaining:
-        assert (
-            pasanaku_contract.collateral_in_use(user, usdc_contract.address) == locked
+    assert pasanaku_contract.free_shares(users[0]) > 0
+    for user in users:
+        assert pasanaku_contract.locked_asset_basis(token_id, user) == pledge(
+            amount, 6
         )
 
 
-def test_leave_started_pasanaku_reverts(pasanaku_contract, started_pasanaku):
-    tid = started_pasanaku["token_id"]
-    leaver = started_pasanaku["users"][1]
+def test_leave_stale_pool_returns_locked_shares(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
+):
+    fund_collateral_for_users(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        users[:2],
+        PASANAKU_AMOUNT_RAW,
+        6,
+    )
+    with boa.env.prank(users[0]):
+        token_id = create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            6,
+        )
+    with boa.env.prank(users[1]):
+        pasanaku_contract.join_pasanaku(token_id)
+    locked = pasanaku_contract.locked_shares(token_id, users[1])
 
-    boa.env.time_travel(seconds=DAYS_40)
-    with boa.reverts(dev="pasanaku not started"):
-        with boa.env.prank(leaver):
-            pasanaku_contract.leave_pasanaku(tid)
+    with boa.env.prank(owner):
+        pasanaku_contract.set_stale_time(DAYS_3)
+    boa.env.time_travel(seconds=DAYS_3)
+    with boa.env.prank(users[1]):
+        pasanaku_contract.leave_pasanaku(token_id)
+
+    assert pasanaku_contract.locked_shares(token_id, users[1]) == 0
+    assert pasanaku_contract.free_shares(users[1]) == locked
