@@ -247,9 +247,10 @@ event PasanakuStarted:
     started_at: uint256
 
 
-# @dev Emitted when a participant makes their obligated round deposit.
+# @dev Emitted when an obligated round deposit is funded for a participant.
 event PasanakuDeposited:
     account: indexed(address)
+    payer: indexed(address)
     token_id: indexed(uint256)
     index: uint256
     amount: uint256
@@ -479,13 +480,15 @@ def create_pasanaku(
 
 
 @external
-def deposit_to_pasanaku(amount: uint256, token_id: uint256):
+def deposit_to_pasanaku(amount: uint256, token_id: uint256, participant: address):
     """
-    @dev Pulls the caller's obligated contribution into the current round's
-        escrow and records the successful deposit.
-    @notice Makes the caller's required deposit for the current round.
+    @dev Pulls assets from the caller into the current round's escrow and
+        records a successful obligated deposit for `participant`. Anyone may
+        fund a participant's deposit.
+    @notice Deposits the required round amount on behalf of a participant.
     @param amount The exact amount of underlying assets required by the pool.
     @param token_id The pasanaku identifier.
+    @param participant The obligor whose deposit obligation is being fulfilled.
     """
     assert amount > 0  # dev: invalid amount
     assert token_id < self._counter  # dev: invalid token id
@@ -494,9 +497,9 @@ def deposit_to_pasanaku(amount: uint256, token_id: uint256):
     round_idx: uint256 = pasanaku.index
     assert pasanaku.started != 0  # dev: pasanaku not started
     assert pasanaku.ended == 0  # dev: pasanaku ended
-    assert msg.sender in pasanaku.participants  # dev: account not in pasanaku
-    assert msg.sender != pasanaku.participants[round_idx]  # dev: active participant cannot deposit
-    assert not self._deposited_for_pasanaku[token_id][round_idx][msg.sender]  # dev: account already deposited
+    assert participant in pasanaku.participants  # dev: account not in pasanaku
+    assert participant != pasanaku.participants[round_idx]  # dev: active participant cannot deposit
+    assert not self._deposited_for_pasanaku[token_id][round_idx][participant]  # dev: account already deposited
     assert amount == pasanaku.round_assets  # dev: invalid deposit amount
 
     success: bool = extcall _ASSET.transferFrom(
@@ -504,12 +507,13 @@ def deposit_to_pasanaku(amount: uint256, token_id: uint256):
     )
     assert success  # dev: transferFrom failed
 
-    self._deposited_for_pasanaku[token_id][round_idx][msg.sender] = True
-    self._successful_obligated_deposits[token_id][msg.sender] += 1
+    self._deposited_for_pasanaku[token_id][round_idx][participant] = True
+    self._successful_obligated_deposits[token_id][participant] += 1
     self._pool_escrow[token_id] += amount
 
     log PasanakuDeposited(
-        account=msg.sender,
+        account=participant,
+        payer=msg.sender,
         token_id=token_id,
         index=round_idx,
         amount=amount,

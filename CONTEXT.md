@@ -94,8 +94,9 @@ At start, the contract recomputes the shares needed for the pledge:
 
 ## Round deposits and pull payouts
 
-Every non-recipient obligor calls
-`deposit_to_pasanaku(round_assets, token_id)`.
+Anyone may fund an obligor's round deposit via
+`deposit_to_pasanaku(round_assets, token_id, participant)`. Assets are pulled
+from the caller; credit is recorded for `participant`.
 
 - Contributions are liquid ERC-20 attributed to `_pool_escrow[token_id]`.
 - After 40 days, permissionless `tick` settles the round.

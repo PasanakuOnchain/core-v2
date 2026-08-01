@@ -98,7 +98,7 @@ def deposit_all_obligors(
             asset.mint(user, amount_raw)
         with boa.env.prank(user):
             asset.approve(pasanaku_contract.address, amount_raw)
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, token_id)
+            pasanaku_contract.deposit_to_pasanaku(amount_raw, token_id, user)
 
 
 def tick_and_claim(pasanaku_contract, token_id, round_idx, users):

@@ -107,7 +107,7 @@ does not pause, upgrade, or guarantee against vault insolvency.
 - `create_pasanaku(round_assets, participant_count)`
 - `join_pasanaku(token_id)`
 - `leave_pasanaku(token_id)`
-- `deposit_to_pasanaku(amount, token_id)`
+- `deposit_to_pasanaku(amount, token_id, participant)`
 - `tick(token_id)`
 - `claim_round_payout(token_id, round_idx)`
 - `pasanaku(token_id)`

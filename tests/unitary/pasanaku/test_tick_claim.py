@@ -32,7 +32,7 @@ def _deposit_except(
             asset.mint(user, amount)
         with boa.env.prank(user):
             asset.approve(pasanaku.address, amount)
-            pasanaku.deposit_to_pasanaku(amount, token_id)
+            pasanaku.deposit_to_pasanaku(amount, token_id, user)
 
 
 def _weighted_distributions(yield_shares, participant_count):
