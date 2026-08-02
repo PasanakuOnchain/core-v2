@@ -1,18 +1,29 @@
+import boa
+
+from src import Pasanaku as pasanaku
+
+# Compile-time protocol constants from Titanoboa (no deploy required).
+_c = pasanaku._constants
+
+DAYS_3 = _c._DAYS_3
+DAYS_7 = _c._DAYS_7
+_MIN_TIME_INTERVAL = _c._MIN_TIME_INTERVAL
+PARTICIPANT_COUNT = _c._MIN_PARTICIPANT_COUNT
+PARTICIPANT_COUNTS = (_c._MIN_PARTICIPANT_COUNT, _c._MAX_PARTICIPANT_COUNT)
+TOKEN_AMOUNT = _c._TOKEN_AMOUNT
+MISS_PENALTY_BPS = _c._MISS_PENALTY_BPS
+BPS_PRECISION = _c._BPS_PRECISION
+MAX_YIELD_FEE = _c._MAX_YIELD_FEE
+MAX_FEE = _c._MAX_FEE
+
+# Test-only fixtures (not Vyper constants).
 PASANAKU_AMOUNT_RAW = 100 * 10**6
-DAYS_3 = 3 * 24 * 60 * 60
-DAYS_7 = 7 * 24 * 60 * 60
-DAYS_40 = 40 * 24 * 60 * 60
-PARTICIPANT_COUNT = 10
-TOKEN_AMOUNT = 1
+BASE_CHAIN_ID = 8453
+BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+BASE_FLUID_FUSDC = "0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169"
 
 URI_NOT_CREATED = "ipfs://QmbcELYwEiVu6n6nJhHmdqTRPfWD6eNHiXZhixKvhjAznF"
 URI_ENDED = "ipfs://QmYA1EK6dEujhcdZMWbjk1gVoHyqEYDZoptHMzL8ppTfWH"
 URI_ONGOING = "ipfs://QmYvMoHxQSPLbCaofRHEyskb7U5UEyq31gwH9pyM1WSEc4"
 URI_STALE = "ipfs://QmcGBA3PSwZxq6RQQsWbUe4NNtbLCbaxuVpx1Jnv5qRF98"
 URI_PENDING = "ipfs://QmZ9PeXU9sUbax7SPAbyoBZawNqCrdgtEYXdipzMYi4Rsp"
-
-MISS_PENALTY_BPS = 5
-BPS_PRECISION = 10_000
-
-MIN_FEE = 0
-MAX_FEE = 10**15  # 0.001 ether — matches _MAX_FEE in Pasanaku.vy

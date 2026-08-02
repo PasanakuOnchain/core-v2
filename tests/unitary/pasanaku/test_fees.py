@@ -1,226 +1,241 @@
 import boa
 
-from tests.utils.constants import MAX_FEE, MIN_FEE, PASANAKU_AMOUNT_RAW
-from tests.utils.helpers import create_pasanaku, fund_collateral_for_users
+from src import Pasanaku as pasanaku
+from tests.utils.constants import (
+    BPS_PRECISION,
+    MAX_FEE,
+    MAX_YIELD_FEE,
+    PASANAKU_AMOUNT_RAW,
+    PARTICIPANT_COUNT,
+)
+from tests.utils.helpers import (
+    create_pasanaku,
+    donate_yield,
+    fund_collateral_for_users,
+    pledge,
+    run_all_rounds,
+)
 
-SAMPLE_FEE = 10**12  # 0.000001 ether
+
+SAMPLE_FEE = 10**12
+SAMPLE_YIELD_FEE = 100
+EXCESS_FEE = 10**14
 
 
-def _reset_fee(pasanaku_contract, owner):
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(MIN_FEE)
+def test_fee_defaults_to_constructor_value(pasanaku_contract):
+    assert pasanaku_contract.fee() == 0
 
 
-def test_fee_defaults_to_zero(pasanaku_contract):
-    assert pasanaku_contract.fee() == MIN_FEE
+def test_yield_fee_defaults_to_constructor_value(pasanaku_contract):
+    assert pasanaku_contract.yield_fee() == MAX_YIELD_FEE
 
 
-def test_set_fee_owner_updates(pasanaku_contract, owner):
+def test_owner_can_update_fee(pasanaku_contract, owner):
     with boa.env.prank(owner):
         pasanaku_contract.set_fee(SAMPLE_FEE)
-
-    fee_logs = [
-        log for log in pasanaku_contract.get_logs() if type(log).__name__ == "FeeSet"
-    ]
-    assert len(fee_logs) == 1
-    assert fee_logs[0].fee == SAMPLE_FEE
     assert pasanaku_contract.fee() == SAMPLE_FEE
-    _reset_fee(pasanaku_contract, owner)
 
 
-def test_set_fee_non_owner_reverts(pasanaku_contract, alice):
+def test_owner_can_update_yield_fee(pasanaku_contract, owner):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_yield_fee(SAMPLE_YIELD_FEE)
+    assert pasanaku_contract.yield_fee() == SAMPLE_YIELD_FEE
+
+
+def test_owner_can_set_fee_at_max(pasanaku_contract, owner):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_fee(MAX_FEE)
+    assert pasanaku_contract.fee() == MAX_FEE
+
+
+def test_owner_can_set_yield_fee_at_max(pasanaku_contract, owner):
+    with boa.env.prank(owner):
+        pasanaku_contract.set_yield_fee(MAX_YIELD_FEE)
+    assert pasanaku_contract.yield_fee() == MAX_YIELD_FEE
+
+
+def test_non_owner_cannot_update_fee(pasanaku_contract, alice):
     with boa.reverts():
         with boa.env.prank(alice):
             pasanaku_contract.set_fee(SAMPLE_FEE)
 
 
-def test_set_fee_above_max_reverts(pasanaku_contract, owner):
+def test_non_owner_cannot_update_yield_fee(pasanaku_contract, alice):
+    with boa.reverts():
+        with boa.env.prank(alice):
+            pasanaku_contract.set_yield_fee(SAMPLE_YIELD_FEE)
+
+
+def test_fee_above_max_reverts(pasanaku_contract, owner):
     with boa.reverts(dev="fee is out of range"):
         with boa.env.prank(owner):
             pasanaku_contract.set_fee(MAX_FEE + 1)
 
 
-def test_set_fee_at_bounds(pasanaku_contract, owner):
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(MIN_FEE)
-    assert pasanaku_contract.fee() == MIN_FEE
-
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(MAX_FEE)
-    assert pasanaku_contract.fee() == MAX_FEE
-
-    _reset_fee(pasanaku_contract, owner)
+def test_yield_fee_above_max_reverts(pasanaku_contract, owner):
+    with boa.reverts(dev="fee is out of range"):
+        with boa.env.prank(owner):
+            pasanaku_contract.set_yield_fee(MAX_YIELD_FEE + 1)
 
 
-def test_create_succeeds_with_zero_fee_no_value(
-    pasanaku_contract, owner, usdc_contract, users
+def test_constructor_fee_above_max_reverts(usdc_contract, vault_contract, owner):
+    with boa.reverts(dev="fee is out of range"):
+        with boa.env.prank(owner):
+            pasanaku.deploy(
+                usdc_contract.address,
+                vault_contract.address,
+                MAX_FEE + 1,
+                0,
+            )
+
+
+def test_constructor_yield_fee_above_max_reverts(
+    usdc_contract, vault_contract, owner
 ):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
-    )
-    with boa.env.prank(users[0]):
-        token_id = create_pasanaku(
-            pasanaku_contract, usdc_contract.address, amount_raw, value=0
-        )
-    assert token_id == 0
+    with boa.reverts(dev="yield fee is out of range"):
+        with boa.env.prank(owner):
+            pasanaku.deploy(
+                usdc_contract.address,
+                vault_contract.address,
+                0,
+                MAX_YIELD_FEE + 1,
+            )
 
 
-def test_create_insufficient_fee_reverts(
-    pasanaku_contract, owner, usdc_contract, users
+def test_create_requires_configured_fee(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
 ):
-    amount_raw = PASANAKU_AMOUNT_RAW
     creator = users[0]
     with boa.env.prank(owner):
         pasanaku_contract.set_fee(SAMPLE_FEE)
     fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        [creator],
+        PASANAKU_AMOUNT_RAW,
     )
     with boa.reverts(dev="insufficient fee"):
         with boa.env.prank(creator):
             pasanaku_contract.create_pasanaku(
-                usdc_contract.address, amount_raw, value=SAMPLE_FEE - 1
+                PASANAKU_AMOUNT_RAW,
+                PARTICIPANT_COUNT,
+                value=SAMPLE_FEE - 1,
             )
-    _reset_fee(pasanaku_contract, owner)
 
 
-def test_create_accepts_exact_fee(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(SAMPLE_FEE)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-
-    contract_balance_before = boa.env.get_balance(pasanaku_contract.address)
-    with boa.env.prank(creator):
-        create_pasanaku(
-            pasanaku_contract,
-            usdc_contract.address,
-            amount_raw,
-            value=SAMPLE_FEE,
-        )
-
-    assert (
-        boa.env.get_balance(pasanaku_contract.address)
-        == contract_balance_before + SAMPLE_FEE
-    )
-    _reset_fee(pasanaku_contract, owner)
-
-
-def test_create_accepts_overpayment(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    overpay = SAMPLE_FEE * 2
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(SAMPLE_FEE)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-
-    contract_balance_before = boa.env.get_balance(pasanaku_contract.address)
-    with boa.env.prank(creator):
-        create_pasanaku(
-            pasanaku_contract,
-            usdc_contract.address,
-            amount_raw,
-            value=overpay,
-        )
-
-    assert (
-        boa.env.get_balance(pasanaku_contract.address)
-        == contract_balance_before + overpay
-    )
-    _reset_fee(pasanaku_contract, owner)
-
-
-def test_create_after_fee_update(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(SAMPLE_FEE)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-    with boa.env.prank(creator):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-    assert token_id >= 0
-    _reset_fee(pasanaku_contract, owner)
-
-
-def test_collect_fees_sweeps_to_owner(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(SAMPLE_FEE)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-    with boa.env.prank(creator):
-        create_pasanaku(
-            pasanaku_contract,
-            usdc_contract.address,
-            amount_raw,
-            value=SAMPLE_FEE,
-        )
-
-    owner_balance_before = boa.env.get_balance(owner)
-    pasanaku_contract.collect_fees()
-
-    assert boa.env.get_balance(pasanaku_contract.address) == 0
-    assert boa.env.get_balance(owner) == owner_balance_before + SAMPLE_FEE
-    _reset_fee(pasanaku_contract, owner)
-
-
-def test_collect_fees_emits_event(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    creator = users[0]
-    with boa.env.prank(owner):
-        pasanaku_contract.set_fee(SAMPLE_FEE)
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
-    )
-    with boa.env.prank(creator):
-        create_pasanaku(
-            pasanaku_contract,
-            usdc_contract.address,
-            amount_raw,
-            value=SAMPLE_FEE,
-        )
-
-    pasanaku_contract.collect_fees()
-    collected = [
-        log
-        for log in pasanaku_contract.get_logs()
-        if type(log).__name__ == "FeesCollected"
-    ]
-    assert len(collected) == 1
-    assert collected[0].target == owner
-    _reset_fee(pasanaku_contract, owner)
-
-
-def test_collect_fees_permissionless(
-    pasanaku_contract, owner, alice, usdc_contract, users
+def test_create_refunds_excess_fee_to_creator(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
 ):
-    amount_raw = PASANAKU_AMOUNT_RAW
     creator = users[0]
     with boa.env.prank(owner):
         pasanaku_contract.set_fee(SAMPLE_FEE)
     fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [creator], amount_raw
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        [creator],
+        PASANAKU_AMOUNT_RAW,
+    )
+    creator_balance = boa.env.get_balance(creator)
+    with boa.env.prank(creator):
+        create_pasanaku(
+            pasanaku_contract,
+            PASANAKU_AMOUNT_RAW,
+            PARTICIPANT_COUNT,
+            value=SAMPLE_FEE + EXCESS_FEE,
+        )
+    assert boa.env.get_balance(creator) == creator_balance - SAMPLE_FEE
+    assert boa.env.get_balance(pasanaku_contract.address) == SAMPLE_FEE
+
+
+def test_collect_fees_sends_native_balance_to_owner(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    users,
+):
+    creator = users[0]
+    with boa.env.prank(owner):
+        pasanaku_contract.set_fee(SAMPLE_FEE)
+    fund_collateral_for_users(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        [creator],
+        PASANAKU_AMOUNT_RAW,
     )
     with boa.env.prank(creator):
         create_pasanaku(
             pasanaku_contract,
-            usdc_contract.address,
-            amount_raw,
+            PASANAKU_AMOUNT_RAW,
+            PARTICIPANT_COUNT,
             value=SAMPLE_FEE,
         )
+    owner_balance = boa.env.get_balance(owner)
+    pasanaku_contract.collect_fees()
+    assert boa.env.get_balance(owner) == owner_balance + SAMPLE_FEE
 
-    owner_balance_before = boa.env.get_balance(owner)
-    with boa.env.prank(alice):
-        pasanaku_contract.collect_fees()
 
-    assert boa.env.get_balance(owner) == owner_balance_before + SAMPLE_FEE
-    _reset_fee(pasanaku_contract, owner)
+def test_collect_fees_when_empty_leaves_owner_balance(
+    pasanaku_contract, owner
+):
+    owner_balance = boa.env.get_balance(owner)
+    pasanaku_contract.collect_fees()
+    assert boa.env.get_balance(owner) == owner_balance
+    assert boa.env.get_balance(pasanaku_contract.address) == 0
+
+
+def test_end_yield_fee_matches_surplus_formula(
+    pasanaku_contract,
+    usdc_contract,
+    vault_contract,
+    owner,
+    started_pasanaku,
+):
+    """Money Flow: vault yield surplus → fee_shares = surplus * yield_fee // BPS."""
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    users = started_pasanaku["users"]
+    pool_yield_fee = pasanaku_contract.pasanaku(token_id).yield_fee
+    assert pool_yield_fee == MAX_YIELD_FEE
+
+    participants = pasanaku_contract.pasanaku(token_id).participants
+    initial_free = [
+        pasanaku_contract.free_shares(participant) for participant in participants
+    ]
+    donate_yield(
+        vault_contract,
+        usdc_contract,
+        owner,
+        pledge(amount),
+    )
+    contract_shares = vault_contract.balanceOf(pasanaku_contract.address)
+
+    run_all_rounds(
+        pasanaku_contract,
+        token_id,
+        users,
+        usdc_contract,
+        owner,
+        amount,
+    )
+
+    principal_shares = vault_contract.previewWithdraw(pledge(amount))
+    fee_shares = pasanaku_contract.eval("self._collected_fee_shares")
+    yield_surplus = (
+        contract_shares
+        - sum(initial_free)
+        - principal_shares * PARTICIPANT_COUNT
+    )
+    assert fee_shares == yield_surplus * pool_yield_fee // BPS_PRECISION
+    assert fee_shares == (
+        yield_surplus * pasanaku_contract._constants._MAX_YIELD_FEE
+        // pasanaku_contract._constants._BPS_PRECISION
+    )

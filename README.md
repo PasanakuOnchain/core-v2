@@ -1,275 +1,212 @@
 # Pasanaku
 
-Onchain rotating savings pools with collateral-backed round obligations. Each pool has ten participants, ten payout rounds, and permissionless settlement after each 40-day deposit window.
+Onchain rotating savings pools backed by yield-bearing ERC-4626 collateral.
+Each deployed `Pasanaku` contract supports one immutable ERC-20 asset and one
+vault. The creator chooses a six- or twelve-participant pool.
 
-**Conceptual overview:** [docs/whitepaper.md](docs/whitepaper.md) · **Documentation hub:** [docs/README.md](docs/README.md)
+`src/Pasanaku.vy` and its tests are the source of truth.
 
-**Source of truth:** `src/Pasanaku.vy` and tests. If prose here disagrees with the contract, the contract wins.
+## Lifecycle
 
-## What it does
+1. A participant deposits the configured asset through `deposit`. The
+   Pasanaku contract deposits those assets in the configured vault and credits
+   the participant with vault shares.
+2. The creator calls `create_pasanaku(round_assets, participant_count)`, where
+   `participant_count` must be `6` or `12`. Joining locks enough shares to back
+   `pledge(round_assets, participant_count)`.
+3. The pool starts automatically when it reaches its configured size.
+   Pre-start vault appreciation is returned to each depositor's free shares;
+   the recipient roster is shuffled; distributable pool yield starts at this
+   point.
+4. During each round, every participant except the current recipient deposits
+   exactly `round_assets`.
+5. Anyone may call `tick` after the 28-day minimum interval since the last
+   successful tick (or pool start). The recipient then pulls the accrued
+   payout through `claim_round_payout`.
+6. The final tick returns principal shares, covers principal shortfalls from
+   the pool reserve, redeems the yield fee directly to the owner, and
+   distributes the remaining yield by shuffled participant position.
 
-A **pasanaku** is a fixed-membership pool over one supported ERC20:
+ERC-1155 membership receipts mint when the pool starts. They are soulbound:
+all transfer and approval functions revert.
 
-1. Participants pre-fund **collateral** per asset, then **create** or **join** a pool with a chosen per-round **amount** (raw token units, e.g. `100 * 10**6` for 100 USDC with 6 decimals).
-2. When the tenth member joins, the pool **starts** automatically. Membership is fixed; the ERC1155 receipt is a non-transferable membership record (minted without receiver callback, so contract-wallet participants are supported).
-3. For each round index `k` (0 … 9), one **recipient** receives principal from the other nine **obligors**. Obligors deposit exactly `amount` during the window; the recipient does not deposit that round.
-4. After `updated + 40 days`, anyone may call `**tick`** to settle the round, accrue principal to `pending_payout`, advance the index, and accrue miss penalties to `pending_penalties` (later claimed via `claim_penalties`).
-5. After ten ticks, the pool **ends** and pledged collateral unlocks (minus any amounts already slashed during the pool).
+## Share accounting
 
-See [docs/protocol-flow.md](docs/protocol-flow.md) for a visual lifecycle and [docs/README.md](docs/README.md) for the full documentation index.
+Vault shares are the canonical collateral unit:
 
-Round deposits sit in per-pool escrow (`pool_escrow`) until tick accrues payout; the recipient claims via `claim_round_payout`. Miss penalties accrue on tick and are pulled via permissionless `claim_penalties`. There is no external lending integration.
+- `free_shares(participant)` — withdrawable shares.
+- `locked_shares(token_id, participant)` — shares assigned to one pool.
+- `locked_asset_basis(token_id, participant)` — fixed asset principal used to
+  distinguish principal from yield; it is not a second balance.
+- `pool_reserve_shares(token_id)` — penalty shares reserved for shortfall
+  coverage and final distribution.
 
-## Pool creation fee (ETH)
+The contract owns all ERC-4626 shares. Locking and unlocking only move shares
+between internal accounting buckets.
 
-Creating a pool requires a native ETH fee sent with `create_pasanaku`:
+Assets cross the vault boundary only when a user deposits, withdraws, redeems,
+when a missed round contribution is slashed, or when the final tick pays the
+owner's yield fee.
 
-- View current fee: `fee()` (default **0** at deploy).
-- Owner sets fee: `set_fee(fee)` — range **0 to 0.001 ETH** (`_MIN_FEE` / `_MAX_FEE`).
-- Owner sweeps accumulated ETH: `collect_fees()` — transfers contract ETH balance to `owner()`.
-- `join_pasanaku` does **not** require ETH; only create does.
+## Pledge and misses
 
-The creation fee is separate from pool collateral (ERC20) and from miss penalties.
+For `N` equal to `6` or `12`:
 
-## Stale pending pools
-
-A pool that never reaches ten members remains **pending** (`started == 0`). After `created + stale_time`, participants may exit:
-
-- `leave_pasanaku(token_id)` — unlocks that participant’s pledged collateral and removes them from the pool, **preserving relative join order** of remaining members (shift-down, not swap-with-last). Emits `PasanakuLeft`.
-- `stale_time` is configurable by owner via `set_stale_time(days)` — **3 to 7 days** (default **7** at deploy).
-
-Integrators should surface stale eligibility and prompt participants to leave or recruit remaining members before the window closes.
-
-## Economics (formula-first)
-
-Constants from the contract: `N = 10`, `MISS_PENALTY_BPS = 5` (0.05% of `amount` per missed obligor deposit).
-
-
-| Quantity                           | Formula                                                               | Meaning                                                                      |
-| ---------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Per-round obligor deposit          | `amount`                                                              | Exact ERC20 units each non-recipient must transfer for the current round     |
-| Recipient payout (successful tick) | `(N - 1) * amount`                                                    | Nine obligor principals, from per-pool escrow and/or slash                   |
-| Collateral lock per pool           | `pledge(amount) = amount * N + amount * N * MISS_PENALTY_BPS / 10000` | Locked on create/join; released after pool ends                              |
-| Miss penalty per obligor           | `amount * MISS_PENALTY_BPS / 10000`                                   | Taken from collateral if deposit missing at tick; accrues to `pending_penalties` until `claim_penalties` |
-
-
-**Example** (6-decimal USDC, `amount = 100_000_000` = 100 USDC):
-
-- Each obligor deposits `100` USDC per round when current.
-- Recipient receives `9 * 100 = 900` USDC principal on a fully funded round.
-- `pledge(100 USDC) = 1000 USDC + 0.5 USDC` penalty reserve (1000 principal + 0.05% × 1000 penalty headroom).
-- One missed deposit at tick: recipient still gets `amount` principal from that obligor’s slash; `0.05 USDC` penalty accrues for later `claim_penalties`.
-
-Penalties do not reduce the recipient’s principal target for that round; they are an extra sink on top of obligor collateral.
-
-## Round timing
-
-- Each round has a **40-day deposit window** starting from the pool’s last `updated` timestamp (start time on round 0).
-- Obligors may `deposit_to_pasanaku` any time before tick, while the pool is active and they are not the current recipient.
-- `**tick` is permissionless** once `block.timestamp >= updated + 40 days`. No admin must advance rounds.
-
-## Round payout claim
-
-- `tick` settles the round and **accrues** principal to `pending_payout(token_id, round_idx)`; it does not push-transfer ERC20 to the recipient.
-- Only `participants[round_idx]` may call `claim_round_payout(token_id, round_idx)` to receive the accrued amount.
-- The pool index advances on `tick` even if the recipient has not claimed yet; unclaimed principal remains in `pending_payout` until claimed.
-
-## Miss penalty claim
-
-- `tick` accrues miss penalties to `pending_penalties(asset)` (logged via `PasanakuPenalties`); it does not ERC20-transfer penalties to `owner()`.
-- Anyone may call permissionless `claim_penalties(asset)` to transfer accrued penalties to the current `owner()` (emits `PenaltiesClaimed`).
-- View accrued balance with `pending_penalties(asset)`.
-
-## Collateral and withdrawals
-
-- `**add_collateral`**: increase per-asset balance held by the contract.
-- `**withdraw_collateral**`: only **free collateral** — `collateral - collateral_in_use` — is withdrawable while obligations are active.
-- Create/join increases `collateral_in_use` by `pledge(amount)` for that pool’s asset.
-
-## Active pools per asset
-
-`active_pasanaku_for_asset(asset)` is a **counter** of started, not-yet-ended pools for that asset. The contract does **not** enforce a single active pool per asset; multiple concurrent active pools for the same ERC20 are possible today. Pending (not started) pools may also coexist.
-
-Integrators should not assume “one pool per token” unless a future version adds enforcement. Concurrent active pools for the same asset are safe at the accounting layer: each `token_id` tracks attributable ERC20 in `pool_escrow`, so one pool’s tick cannot spend another pool’s deposits.
-
-## Supported assets and deployment
-
-- Constructor takes **four** ERC20 addresses (`supported_assets()`). Which tokens they are is **deployment-specific** (see `script/deploy.py` env vars).
-- **Standard ERC20 only**: no fee-on-transfer, no rebasing; balances must match `transfer` / `transferFrom` amounts.
-- Deployed instances are **non-upgradeable**. There is **no pause**, force-settle, or emergency override.
-
-### Owner role
-
-`owner()` (two-step ownable) is the protocol treasury:
-
-- Receives **miss penalties** (ERC20) when anyone calls `claim_penalties(asset)` after tick accrual.
-- Receives **creation fees** (ETH) via `collect_fees()`.
-- May configure `set_fee` and `set_stale_time`.
-
-The owner does **not** operate rounds — settlement remains permissionless via `tick`. The owner cannot redirect recipient payouts or force-settle pools.
-
-### ERC-1155 membership metadata
-
-Each pool `token_id` maps to a soulbound ERC-1155 receipt (transfers revert). The `uri(token_id)` view returns IPFS metadata reflecting pool state:
-
-| State | Condition |
-|-------|-----------|
-| **pending** | Created, not started, not yet stale |
-| **stale** | Pending and `created + stale_time` elapsed |
-| **ongoing** | Started, not ended |
-| **ended** | Pool completed after round 9 tick |
-
-Use `uri()` for wallet and explorer display; do not assume tradability.
-
-## Security assumptions and guarantee boundaries
-
-What the protocol is designed to provide:
-
-- **Collateralized obligations**: join/create locks `pledge(amount)`; missed deposits slash `amount + penalty` from collateral while still crediting principal to the recipient payout.
-- **Permissionless settlement**: any address may `tick` after the window elapses.
-- **Fixed membership after start**: no late joins; ERC1155 transfers are disabled.
-
-What it does **not** claim:
-
-- Not “trustless everywhere”: treasury receives penalties; deployment chooses assets and owner.
-- Not safe for arbitrary ERC20s: exotic tokens can break accounting.
-- Not protected by admin circuit breakers: bugs or griefing are not pausable onchain.
-
-## Invariant-first testing
-
-Tests use **Titanoboa** + **pytest** via Moccasin (`mox test`). Strategy:
-
-1. **Invariants first** — encode economic rules explicitly (payout size, pledge math, escrow deltas, collateral locks, active counter).
-2. **Scenario tests** — full join → deposit → tick → end paths, including multiple active pools per asset (`test_second_active_pasanaku_same_asset_starts`).
-3. **Targeted fuzzing** — extend with property tests where high-value; mocks live under `tests/mocks/`.
-
-Tests that assert recipient balance after settlement use the `tick_and_claim` helper in `tests/conftest.py` (tick then `claim_round_payout`).
-
-Key invariants to preserve when changing code:
-
-- `pledge(amount)` matches `_pledge` / `pledge()` view.
-- Successful tick accrues `(N - 1) * amount` principal to `pending_payout`; `claim_round_payout` delivers it to the recipient.
-- Missed obligor: slash `amount + penalty_per`, penalties accrue to `pending_penalties` (claimable to treasury), recipient still credited `amount` for that obligor.
-- Only free collateral is withdrawable while `collateral_in_use > 0`.
-- `active_pasanaku_for_asset` increments on start, decrements on end; no hard cap at 1.
-
-```bash
-mox test
-mox test --coverage
-mox test tests/unitary/pasanaku/test_tick_claim.py -k tick
+```text
+principal = round_assets * N
+penalty_headroom = principal * 5 / 10_000
+pledge = principal + penalty_headroom
 ```
 
-Coverage config: `.coveragerc` (boa coverage plugin; omits mocks).
+If an obligor misses a round:
 
-## Integrator / indexer playbook
+1. Principal plus penalty is priced with one vault preview to keep share
+   rounding aligned.
+2. If collateral is sufficient, `round_assets` is withdrawn and the penalty
+   shares move to the pool reserve.
+3. If collateral is underwater, all remaining locked shares are redeemed; the
+   recipient receives that partial recovery and the round still progresses.
+4. No miss penalty is sent to the contract owner.
 
-**Canonical read model** — prefer views over inferring from transfers:
+Round contributions remain liquid ERC-20 escrow. `tick` moves their accounting
+from `pool_escrow` to `pending_payout`; the recipient claims later.
 
+## Vault yield and losses
 
-| View                                                   | Use                                                                   |
-| ------------------------------------------------------ | --------------------------------------------------------------------- |
-| `pasanaku(id)`                                         | Pool state: asset, amount, participants, index, started/updated/ended |
-| `deposited_for_pasanaku(id, index, participant)`       | Round deposit flags                                                   |
-| `collateral` / `free_collateral` / `collateral_in_use` | Participant balances                                                  |
-| `pledge(amount)`                                       | Required lock for a given per-round amount                            |
-| `active_pasanaku_for_asset(asset)`                     | Active pool count (not a uniqueness guarantee)                        |
-| `successful_obligated_deposits`                        | Historical deposit count per participant                              |
-| `pool_escrow(id)`                                      | Per-pool ERC20 attribution ledger                                     |
-| `pending_payout(id, round_idx)`                        | Accrued principal awaiting recipient claim                            |
-| `pending_penalties(asset)`                             | Accrued miss penalties awaiting `claim_penalties`                     |
-| `claim_round_payout(id, round_idx)`                    | Recipient pulls principal after tick (write)                          |
-| `claim_penalties(asset)`                               | Permissionless pull of accrued penalties to current `owner()` (write) |
-| `fee()`                                                | ETH required on `create_pasanaku` (0–0.001 ETH)                         |
-| `uri(id)`                                              | ERC-1155 metadata URI by pool state (pending/stale/ongoing/ended)     |
+- Yield before pool start remains with the depositor.
+- Yield after start is pooled. At completion, the yield fee is redeemed
+  directly to the owner and the remainder is distributed with weight `i + 1`,
+  where `i` is the participant's shuffled recipient position.
+- Reserve shares first cover participant principal shortfalls caused by vault
+  loss or rounding.
+- If the reserve cannot cover the full shortfall, the available reserve is
+  allocated proportionally and settlement still completes.
+- Mid-round vault loss also settles without freezing `tick`; an underwater
+  misser can reduce that round's payout to the assets actually recovered.
+- Any reserve remainder joins vault yield before the fee and weighted
+  participant distribution.
 
+For `N` participants, `total_weight = N * (N + 1) // 2`. Participant `i`
+receives `distributable_yield * (i + 1) // total_weight`; integer dust is
+included in the final participant's distribution.
 
-**Lifecycle events** (index for state changes):
+Integrators must evaluate the configured vault independently. This contract
+does not pause, upgrade, or guarantee against vault insolvency.
 
-- `PasanakuCreated`, `PasanakuJoined`, `PasanakuLeft`, `PasanakuStarted`
-- `PasanakuDeposited` (per-round obligor payment)
-- `PasanakuTicked`, `PasanakuPenalties`, `PenaltiesClaimed`, `PasanakuEnded`
-- `CollateralAdded`, `CollateralWithdrawn`
-- `FeeSet`, `StaleTimeSet`, `FeesCollected`
+## Main interface
 
-**Integration checklist**
+### Collateral
 
-1. Read `supported_assets()` from the deployment you target.
-2. Scale UI amounts with token `decimals()`; onchain `amount` is always raw units.
-3. Before create/join, ensure `free_collateral >= pledge(amount)`.
-4. Track `pasanaku.index` for current recipient; disable deposit UI for recipient and after `deposited_for_pasanaku`.
-5. Surface `updated + 40 days` for tick eligibility; call or relay `tick` permissionlessly.
-6. After tick, prompt the round recipient to call `claim_round_payout(token_id, round_idx)` (or relay it).
-7. Optionally relay `claim_penalties(asset)` when `pending_penalties(asset) > 0` so treasury receives ERC20.
-8. Do not assume one active pool per asset; use `token_id` as the primary key.
-9. On create, attach `msg.value >= fee()`; listen for `FeeSet` to update UI.
-10. For pending pools, compare `pasanaku(id).created` against stale window (default 7 days; `StaleTimeSet` event); offer `leave_pasanaku` when eligible.
+- `deposit(assets, receiver) -> shares`
+- `withdraw(assets, receiver) -> shares`
+- `redeem(shares, receiver) -> assets`
+- `free_shares(participant)`
+- `locked_shares(token_id, participant)`
+
+### Pools
+
+- `create_pasanaku(round_assets, participant_count)`
+- `join_pasanaku(token_id)`
+- `leave_pasanaku(token_id)`
+- `deposit_to_pasanaku(amount, token_id, participant)`
+- `tick(token_id)`
+- `claim_round_payout(token_id, round_idx)`
+- `pasanaku(token_id)`
+- `pledge(round_assets, participant_count)`
+
+### Deployment and administration
+
+The constructor is:
+
+```text
+Pasanaku(asset, vault, creation_fee_wei, yield_fee_bps)
+```
+
+It verifies that `vault.asset()` matches `asset`. The owner may set:
+
+- Creation fee: `set_fee`, capped at `0.001 ETH`.
+- Yield fee: `set_yield_fee`, capped at `505` bps.
+- Pending-pool stale time for future pools: `set_stale_time`, from 3 to 7 days.
+  Each pool snapshots the value at creation and rejects new joins once stale.
+
+`collect_fees` transfers accumulated native creation fees to `owner()`.
+It never transfers ERC-20 reserve shares.
+
+Production deployment targets Base (`networks.base` in
+[`moccasin.toml`](moccasin.toml), chain id `8453`) and uses:
+
+```text
+PASANAKU_ASSET
+PASANAKU_VAULT
+PASANAKU_CREATE_FEE_WEI  # optional, defaults to 0
+PASANAKU_YIELD_FEE_BPS   # optional, defaults to 0
+```
+
+```bash
+uv run mox run deploy --network base
+```
 
 ## Development
 
-**Requirements:** Python ≥ 3.12, [Moccasin](https://cyfrin.github.io/moccasin), [uv](https://docs.astral.sh/uv/) (recommended).
+Requirements: Python 3.12+, `uv`, Moccasin, Titanoboa, and Vyper 0.4.3.
+Copy [`.env.example`](.env.example) to `.env` and set `ALCHEMY_API_KEY`
+(and optionally `BLOCKSCOUT_API_KEY` for explorer verify). Moccasin is
+configured for Base (`networks.base` / `networks.base-fork`, chain id
+`8453`).
+
+### Technical docs
+
+The in-depth implementation guide is a VitePress site under [`docs/`](docs/):
+
+```bash
+cd docs && npm install && npm run docs:dev
+```
 
 ```bash
 uv sync
-mox test
-mox test --coverage
+uv run mox compile
+uv run mox test
 ```
 
-### Deploy
-
-Production deploy (`script/deploy.py`) expects `.env` (see `moccasin.toml` `dot_env`):
-
-- `PASANAKU_ASSET_USDC`
-- `PASANAKU_ASSET_USDT`
-- `PASANAKU_ASSET_WETH`
-- `PASANAKU_ASSET_DAI`
+`mox test` runs unitary tests on the local `pyevm` network and skips the
+Fluid fUSDC fork suite. Run the fork parity suite through Moccasin's
+configured Base fork (`ALCHEMY_API_KEY` in `.env`):
 
 ```bash
-# Local pyevm (default)
-mox run deploy
-
-# Named network from moccasin.toml
-mox run deploy --network sepolia
-mox run deploy --network anvil
+uv run mox test tests/fork --network base-fork
+# or only the fork marker:
+uv run mox test -m fork --network base-fork
 ```
 
-Mock ERC20s for local experiments:
+Override the RPC from [`moccasin.toml`](moccasin.toml) when needed:
 
 ```bash
-mox run deploy_mocks
+uv run mox test tests/fork --network base-fork --url "$BASE_RPC_URL"
 ```
 
-## Documentation
+Plain pytest still works as a fallback (`BASE_RPC_URL` / `FORK_URL`, optional
+`FORK_BLOCK`). The suite uses Base USDC at
+`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` and Fluid fUSDC at
+`0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169`.
 
-| Resource | Audience |
-|----------|----------|
-| [docs/README.md](docs/README.md) | Documentation hub |
-| [docs/whitepaper.md](docs/whitepaper.md) | Public narrative — economics, governance, security |
-| [docs/protocol-flow.md](docs/protocol-flow.md) | Contract-centric lifecycle diagram |
-| [docs/adr/](docs/adr/) | Architecture decision records |
-| [CONTEXT.md](CONTEXT.md) | Domain glossary and wording guardrails |
+Local mocks include an ERC-20 and an exchange-rate-adjustable ERC-4626 vault:
 
-### Repo layout
-
+```bash
+uv run mox run deploy_mocks
 ```
-src/Pasanaku.vy      # Core protocol
-script/deploy.py     # Mainnet-style asset env deploy
+
+Repository layout:
+
+```text
+src/Pasanaku.vy
+script/deploy.py
 script/deploy_mocks.py
-tests/               # Titanoboa pytest suite
-CONTEXT.md           # Domain glossary for agents (/grill-with-docs)
-docs/
-  README.md          # Documentation hub
-  whitepaper.md      # Public-facing whitepaper
-  protocol-flow.md   # Lifecycle diagram
-  adr/               # Architecture decision records
-  whitepaper/        # Extended chapter-by-chapter narrative
+tests/mocks/
+tests/unitary/
+tests/fork/
+tests/utils/
+docs/                 # VitePress implementation guide
+moccasin.toml
+.env.example
+CONTEXT.md
 ```
-
-### Contributing
-
-- Match existing Vyper style and dev revert strings (`dev: ...`).
-- Update `CONTEXT.md` when introducing new domain terms.
-- Record hard-to-reverse trade-offs in `docs/adr/` (see `docs/adr/README.md`).
-- Run `mox test` before opening a PR.
-
-Agent-oriented terminology: `CONTEXT.md`.  
-Human protocol reference: this README + NatSpec on `Pasanaku.vy`.

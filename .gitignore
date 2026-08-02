@@ -123,6 +123,7 @@ celerybeat.pid
 
 # Environments
 .env
+!.env.example
 .venv
 env/
 venv/
@@ -139,6 +140,11 @@ venv.bak/
 
 # mkdocs documentation
 /site
+
+# VitePress (docs/)
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 
 # mypy
 .mypy_cache/
@@ -168,6 +174,7 @@ cython_debug/
 .env
 .env.unsafe
 .env*
+!.env.example
 out/
 build/
 lib/

@@ -1,168 +1,120 @@
 import boa
 
-from tests.utils.constants import PASANAKU_AMOUNT_RAW
-from tests.utils.helpers import create_pasanaku, fund_collateral_for_users
+
+def _fund_round_deposit(asset, pasanaku, owner, participant, amount):
+    with boa.env.prank(owner):
+        asset.mint(participant, amount)
+    with boa.env.prank(participant):
+        asset.approve(pasanaku.address, amount)
 
 
-def test_recipient_cannot_deposit(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
+def test_obligor_deposit_is_recorded(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    started_pasanaku,
 ):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    recipient = started_pasanaku["users"][0]
-    with boa.env.prank(owner):
-        usdc_contract.mint(recipient, amount_raw)
-    with boa.env.prank(recipient):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        with boa.reverts(dev="active participant cannot deposit # nosplit"):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-
-def test_duplicate_deposit_same_round_reverts(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
-):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-    extra = amount_raw * 2
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, extra)
-    with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, extra)
-        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-        with boa.reverts(dev="account already deposited # nosplit"):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-
-def test_deposit_wrong_amount_reverts(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
-):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, amount_raw)
-    with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        with boa.reverts(dev="invalid deposit amount"):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw - 1, tid)
-
-
-def test_deposit_increases_contract_escrow_balance(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
-):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-    pre_escrow = usdc_contract.balanceOf(pasanaku_contract.address)
-
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, amount_raw)
-    with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-    assert usdc_contract.balanceOf(pasanaku_contract.address) == pre_escrow + amount_raw
-
-
-def test_deposited_for_pasanaku_flag(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
-):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-
-    assert pasanaku_contract.deposited_for_pasanaku(tid, 0, payer) is False
-
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, amount_raw)
-    with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-    assert pasanaku_contract.deposited_for_pasanaku(tid, 0, payer) is True
-    assert pasanaku_contract.successful_obligated_deposits(tid, payer) == 1
-
-
-def test_deposit_emits_event(pasanaku_contract, owner, usdc_contract, started_pasanaku):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, amount_raw)
-    with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-    deposited = [
-        log
-        for log in pasanaku_contract.get_logs()
-        if type(log).__name__ == "PasanakuDeposited"
-    ]
-    assert len(deposited) == 1
-    assert deposited[0].account == payer
-    assert deposited[0].token_id == tid
-    assert deposited[0].index == 0
-    assert deposited[0].amount == amount_raw
-
-
-def test_deposit_invalid_token_id_reverts(pasanaku_contract, started_pasanaku):
-    amount_raw = started_pasanaku["amount_raw"]
-    payer = started_pasanaku["users"][1]
-    with boa.reverts(dev="invalid token id"):
-        with boa.env.prank(payer):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, 999)
-
-
-def test_deposit_not_participant_reverts(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
-):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    outsider = boa.env.generate_address()
-    with boa.env.prank(owner):
-        usdc_contract.mint(outsider, amount_raw)
-    with boa.env.prank(outsider):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        with boa.reverts(dev="account not in pasanaku # nosplit"):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-
-
-def test_deposit_before_start_reverts(pasanaku_contract, owner, usdc_contract, users):
-    amount_raw = PASANAKU_AMOUNT_RAW
-    fund_collateral_for_users(
-        pasanaku_contract, usdc_contract, owner, [users[0]], amount_raw
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(user for user in started_pasanaku["users"] if user != recipient)
+    _fund_round_deposit(
+        usdc_contract,
+        pasanaku_contract,
+        owner,
+        payer,
+        amount,
     )
-    with boa.env.prank(users[0]):
-        token_id = create_pasanaku(pasanaku_contract, usdc_contract.address, amount_raw)
-
-    payer = users[0]
-    with boa.env.prank(owner):
-        usdc_contract.mint(payer, amount_raw)
     with boa.env.prank(payer):
-        usdc_contract.approve(pasanaku_contract.address, amount_raw)
-        with boa.reverts(dev="pasanaku not started"):
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, token_id)
+        pasanaku_contract.deposit_to_pasanaku(amount, token_id, payer)
+    assert pasanaku_contract.deposited_for_pasanaku(token_id, 0, payer)
+    assert pasanaku_contract.successful_obligated_deposits(token_id, payer) == 1
+    assert pasanaku_contract.pool_escrow(token_id) == amount
 
 
-def test_successful_obligated_deposits_increments_per_round(
-    pasanaku_contract, owner, usdc_contract, started_pasanaku
+def test_third_party_can_deposit_on_behalf(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    started_pasanaku,
 ):
-    tid = started_pasanaku["token_id"]
-    amount_raw = started_pasanaku["amount_raw"]
-    users = started_pasanaku["users"]
-    payer = users[2]
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    obligor = next(user for user in started_pasanaku["users"] if user != recipient)
+    friend = boa.env.generate_address("friend")
+    _fund_round_deposit(
+        usdc_contract,
+        pasanaku_contract,
+        owner,
+        friend,
+        amount,
+    )
+    with boa.env.prank(friend):
+        pasanaku_contract.deposit_to_pasanaku(amount, token_id, obligor)
 
-    for round_idx in range(2):
-        with boa.env.prank(owner):
-            usdc_contract.mint(payer, amount_raw)
+    assert pasanaku_contract.deposited_for_pasanaku(token_id, 0, obligor)
+    assert not pasanaku_contract.deposited_for_pasanaku(token_id, 0, friend)
+    assert pasanaku_contract.successful_obligated_deposits(token_id, obligor) == 1
+    assert pasanaku_contract.successful_obligated_deposits(token_id, friend) == 0
+    assert pasanaku_contract.pool_escrow(token_id) == amount
+
+
+def test_round_recipient_cannot_deposit(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    _fund_round_deposit(
+        usdc_contract,
+        pasanaku_contract,
+        owner,
+        recipient,
+        amount,
+    )
+    with boa.reverts(dev="active participant cannot deposit"):
+        with boa.env.prank(recipient):
+            pasanaku_contract.deposit_to_pasanaku(amount, token_id, recipient)
+
+
+def test_duplicate_round_deposit_reverts(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    amount = started_pasanaku["amount_raw"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(user for user in started_pasanaku["users"] if user != recipient)
+    _fund_round_deposit(
+        usdc_contract,
+        pasanaku_contract,
+        owner,
+        payer,
+        amount * 2,
+    )
+    with boa.env.prank(payer):
+        pasanaku_contract.deposit_to_pasanaku(amount, token_id, payer)
+        with boa.reverts(dev="account already deposited"):
+            pasanaku_contract.deposit_to_pasanaku(amount, token_id, payer)
+
+
+def test_wrong_round_amount_reverts(
+    pasanaku_contract,
+    started_pasanaku,
+):
+    token_id = started_pasanaku["token_id"]
+    recipient = pasanaku_contract.pasanaku(token_id).participants[0]
+    payer = next(user for user in started_pasanaku["users"] if user != recipient)
+    with boa.reverts(dev="invalid deposit amount"):
         with boa.env.prank(payer):
-            usdc_contract.approve(pasanaku_contract.address, amount_raw)
-            pasanaku_contract.deposit_to_pasanaku(amount_raw, tid)
-        assert (
-            pasanaku_contract.successful_obligated_deposits(tid, payer) == round_idx + 1
-        )
-        if round_idx == 0:
-            boa.env.time_travel(seconds=40 * 24 * 60 * 60)
-            pasanaku_contract.tick(tid)
+            pasanaku_contract.deposit_to_pasanaku(
+                started_pasanaku["amount_raw"] - 1,
+                token_id,
+                payer,
+            )

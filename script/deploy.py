@@ -12,21 +12,19 @@ def _require_env(name: str) -> str:
 
 
 def deploy() -> VyperContract:
-    usdc = _require_env("PASANAKU_ASSET_USDC")
-    usdt = _require_env("PASANAKU_ASSET_USDT")
-    weth = _require_env("PASANAKU_ASSET_WETH")
-    dai = _require_env("PASANAKU_ASSET_DAI")
-
-    supported_assets = [usdc, usdt, weth, dai]
+    asset = _require_env("PASANAKU_ASSET")
+    vault = _require_env("PASANAKU_VAULT")
+    fee = int(os.environ.get("PASANAKU_CREATE_FEE_WEI", "0"))
+    yield_fee = int(os.environ.get("PASANAKU_YIELD_FEE_BPS", "0"))
 
     print("--------- DEPLOYING PASANAKU ---------")
-    print(f"  USDC: {usdc}")
-    print(f"  USDT: {usdt}")
-    print(f"  WETH: {weth}")
-    print(f"  DAI:  {dai}")
+    print(f"  Asset: {asset}")
+    print(f"  Vault: {vault}")
+    print(f"  Creation fee (wei): {fee}")
+    print(f"  Yield fee (bps): {yield_fee}")
     print("")
 
-    contract: VyperContract = pasanaku.deploy(supported_assets)
+    contract: VyperContract = pasanaku.deploy(asset, vault, fee, yield_fee)
     print(f"Deployed Pasanaku at: {contract.address}")
     print("--------- DEPLOY COMPLETE ---------")
     return contract
