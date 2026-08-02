@@ -1,7 +1,7 @@
 import boa
 
 from tests.utils.constants import (
-    DAYS_40,
+    _MIN_TIME_INTERVAL,
     MAX_YIELD_FEE,
     PARTICIPANT_COUNT,
 )
@@ -67,7 +67,7 @@ def test_tick_accrues_and_claims_full_round_payout(
         owner,
         amount,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
     expected = amount * (PARTICIPANT_COUNT - 1)
     assert pasanaku_contract.pending_payout(token_id, 0) == expected
@@ -104,7 +104,7 @@ def test_miss_funds_recipient_and_moves_penalty_to_reserve(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
 
     penalty = penalty_per_amount(amount)
@@ -330,7 +330,7 @@ def test_reserve_covers_vault_loss_before_surplus_distribution(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
     reserve = pasanaku_contract.pool_reserve_shares(token_id)
     assert reserve > 0
@@ -348,7 +348,7 @@ def test_reserve_covers_vault_loss_before_surplus_distribution(
             owner,
             amount,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
     assert pasanaku_contract.pool_reserve_shares(token_id) == 0
@@ -390,7 +390,7 @@ def test_end_allocates_small_reserve_cumulatively_across_shortfalls(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
     assert pasanaku_contract.pool_reserve_shares(token_id) > 0
 
@@ -407,7 +407,7 @@ def test_end_allocates_small_reserve_cumulatively_across_shortfalls(
             owner,
             amount,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
     deposit_all_obligors(
@@ -419,7 +419,7 @@ def test_end_allocates_small_reserve_cumulatively_across_shortfalls(
         owner,
         amount,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
 
     assert pasanaku_contract.pasanaku(token_id).ended != 0
@@ -466,7 +466,7 @@ def test_miss_uses_combined_withdraw_preview(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     needed_shares = vault_contract.previewWithdraw(amount + penalty)
     principal_shares = vault_contract.previewWithdraw(amount)
     explicit_penalty_shares = vault_contract.previewWithdraw(penalty)
@@ -519,7 +519,7 @@ def test_miss_reserves_penalty_when_combined_preview_gap_is_zero(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     principal_shares = vault_contract.previewWithdraw(amount)
     needed_shares = vault_contract.previewWithdraw(amount + penalty)
     explicit_penalty_shares = vault_contract.previewWithdraw(penalty)
@@ -563,7 +563,7 @@ def test_miss_reserves_remaining_tip_when_principal_is_still_covered(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     supply = vault_contract.totalSupply()
     target_assets = (
         (amount + penalty // 2) * supply + before_locked - 1
@@ -612,7 +612,7 @@ def test_end_does_not_fee_skim_leftover_miss_penalty_reserve(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_id)
     assert pasanaku_contract.pool_reserve_shares(token_id) > 0
 
@@ -626,7 +626,7 @@ def test_end_does_not_fee_skim_leftover_miss_penalty_reserve(
             owner,
             amount,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
     assert pasanaku_contract.pasanaku(token_id).ended != 0
@@ -661,7 +661,7 @@ def test_underwater_miss_settles_partial_payout_and_pool_can_finish(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     with boa.env.prank(owner):
         vault_contract.remove_assets(owner, vault_contract.totalAssets() * 9 // 10)
     recovered_assets = vault_contract.previewRedeem(before_locked)
@@ -684,7 +684,7 @@ def test_underwater_miss_settles_partial_payout_and_pool_can_finish(
             owner,
             amount,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
     assert pasanaku_contract.pasanaku(token_id).ended != 0
@@ -713,7 +713,7 @@ def test_empty_vault_miss_does_not_block_pool_completion(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     with boa.env.prank(owner):
         vault_contract.remove_assets(owner, vault_contract.totalAssets())
     recovered_assets = vault_contract.previewRedeem(
@@ -740,7 +740,7 @@ def test_empty_vault_miss_does_not_block_pool_completion(
             owner,
             amount,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
     assert pasanaku_contract.pasanaku(token_id).ended != 0
@@ -774,7 +774,7 @@ def test_throttled_vault_liquidity_reverts_tick_without_wiping_collateral(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
 
     before_locked = pasanaku_contract.locked_shares(token_id, defaulter)
     before_basis = pasanaku_contract.locked_asset_basis(token_id, defaulter)
@@ -818,7 +818,7 @@ def test_tick_succeeds_after_vault_liquidity_limit_cleared(
         amount,
         token_id,
     )
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
 
     with boa.env.prank(owner):
         vault_contract.set_withdraw_limit(amount - 1)

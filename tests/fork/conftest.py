@@ -6,15 +6,14 @@ import pytest
 from src import Pasanaku as pasanaku
 from tests.fork.helpers import load_erc20, load_fluid_fusdc
 from tests.utils.constants import (
-    MAINNET_FLUID_FUSDC,
-    MAINNET_USDC,
+    BASE_CHAIN_ID,
+    BASE_FLUID_FUSDC,
+    BASE_USDC,
     MAX_YIELD_FEE,
     PASANAKU_AMOUNT_RAW,
     PARTICIPANT_COUNT,
 )
 from tests.utils.helpers import create_and_join_all
-
-MAINNET_CHAIN_ID = 1
 
 
 def _active_moccasin_network():
@@ -44,62 +43,66 @@ def _env_chain_id():
     return int(chain_id) if chain_id is not None else None
 
 
+def _require_base_chain(configured_chain_id=None, runtime_chain_id=None):
+    if configured_chain_id not in (None, BASE_CHAIN_ID):
+        pytest.skip(
+            "fork tests require Base "
+            f"(chain_id={BASE_CHAIN_ID}), got config chain_id={configured_chain_id}"
+        )
+    if runtime_chain_id not in (None, BASE_CHAIN_ID):
+        pytest.skip(
+            "fork tests require Base "
+            f"(chain_id={BASE_CHAIN_ID}), got runtime chain_id={runtime_chain_id}"
+        )
+
+
 @pytest.fixture(scope="module", autouse=True)
-def mainnet_fork():
-    """Ensure a mainnet fork env via Moccasin, or fall back to ETH_RPC_URL."""
+def network_fork():
+    """Ensure a Base fork env via Moccasin, or fall back to BASE_RPC_URL / FORK_URL."""
     network = _active_moccasin_network()
     if network is not None and network.is_fork:
-        configured_chain_id = network.chain_id
-        runtime_chain_id = _env_chain_id()
-        if configured_chain_id not in (None, MAINNET_CHAIN_ID):
-            pytest.skip(
-                "fork tests require Ethereum mainnet "
-                f"(chain_id=1), got config chain_id={configured_chain_id}"
-            )
-        if runtime_chain_id not in (None, MAINNET_CHAIN_ID):
-            pytest.skip(
-                "fork tests require Ethereum mainnet "
-                f"(chain_id=1), got runtime chain_id={runtime_chain_id}"
-            )
+        _require_base_chain(
+            configured_chain_id=network.chain_id,
+            runtime_chain_id=_env_chain_id(),
+        )
         yield
         return
 
-    rpc_url = os.environ.get("ETH_RPC_URL") or os.environ.get("FORK_URL")
+    rpc_url = (
+        os.environ.get("BASE_RPC_URL")
+        or os.environ.get("FORK_URL")
+        or os.environ.get("ETH_RPC_URL")
+    )
     if not rpc_url:
         pytest.skip(
-            "fork tests require `mox test --network ethereum` "
-            "(or ETH_RPC_URL / FORK_URL for plain pytest)"
+            "fork tests require `mox test --network base-fork` "
+            "(or BASE_RPC_URL / FORK_URL for plain pytest)"
         )
 
     block = os.environ.get("FORK_BLOCK", "safe")
     block_identifier = int(block) if str(block).isdigit() else block
     with boa.fork(rpc_url, block_identifier=block_identifier):
-        runtime_chain_id = _env_chain_id()
-        if runtime_chain_id not in (None, MAINNET_CHAIN_ID):
-            pytest.skip(
-                "fork tests require Ethereum mainnet "
-                f"(chain_id=1), got {runtime_chain_id}"
-            )
+        _require_base_chain(runtime_chain_id=_env_chain_id())
         yield
 
 
 @pytest.fixture(autouse=True)
-def isolate_fork_case(mainnet_fork, pasanaku_contract):
+def isolate_fork_case(network_fork, pasanaku_contract):
     with boa.env.anchor():
         yield
 
 
 @pytest.fixture(scope="module")
-def usdc_contract(mainnet_fork):
+def usdc_contract(network_fork):
     network = _active_moccasin_network()
-    address = _resolve_contract_address(network, "usdc", MAINNET_USDC)
+    address = _resolve_contract_address(network, "usdc", BASE_USDC)
     return load_erc20(address)
 
 
 @pytest.fixture(scope="module")
-def vault_contract(mainnet_fork):
+def vault_contract(network_fork):
     network = _active_moccasin_network()
-    address = _resolve_contract_address(network, "fluid_fusdc", MAINNET_FLUID_FUSDC)
+    address = _resolve_contract_address(network, "fluid_fusdc", BASE_FLUID_FUSDC)
     vault = load_fluid_fusdc(address)
     # Keep the fork rate non-1:1 while making both supported pledge sizes
     # convert without a deposit/withdraw rounding gap.
@@ -109,7 +112,7 @@ def vault_contract(mainnet_fork):
 
 @pytest.fixture(scope="module")
 def pasanaku_contract(
-    mainnet_fork,
+    network_fork,
     owner,
     usdc_contract,
     vault_contract,

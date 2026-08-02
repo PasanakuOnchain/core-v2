@@ -2,7 +2,7 @@ import boa
 
 from tests.utils.constants import (
     BPS_PRECISION,
-    DAYS_40,
+    _MIN_TIME_INTERVAL,
     MISS_PENALTY_BPS,
     PARTICIPANT_COUNT,
 )
@@ -126,7 +126,7 @@ def run_all_rounds(
             owner,
             amount_raw,
         )
-        boa.env.time_travel(seconds=DAYS_40)
+        boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
         pasanaku_contract.tick(token_id)
 
 

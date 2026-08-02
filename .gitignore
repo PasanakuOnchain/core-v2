@@ -123,6 +123,7 @@ celerybeat.pid
 
 # Environments
 .env
+!.env.example
 .venv
 env/
 venv/
@@ -168,6 +169,7 @@ cython_debug/
 .env
 .env.unsafe
 .env*
+!.env.example
 out/
 build/
 lib/

@@ -5,14 +5,16 @@ Terminology and accounting guardrails for contributors and agents.
 ## Source of truth
 
 `src/Pasanaku.vy` and passing tests are canonical. Do not document the earlier
-multi-asset or asset-denominated collateral model as current behavior.
+multi-asset or asset-denominated collateral model as current behavior. For
+tooling, networks, and deploy commands, see `README.md`.
 
 ## Pasanaku
 
 A fixed-membership rotating savings pool identified by `token_id`.
 
 - A creator configures exactly `6` or `12` participants.
-- At start, the participant roster is shuffled using beacon randomness.
+- At start, the participant roster is shuffled using `block.prevrandao`
+  (beacon randomness).
 - There are `N` rounds and recipient `k` is shuffled `participants[k]`.
 - The per-round obligation is `round_assets` in raw units of the deployment's
   single immutable ERC-20 asset.
@@ -99,7 +101,8 @@ Anyone may fund an obligor's round deposit via
 from the caller; credit is recorded for `participant`.
 
 - Contributions are liquid ERC-20 attributed to `_pool_escrow[token_id]`.
-- After 40 days, permissionless `tick` settles the round.
+- After `_MIN_TIME_INTERVAL` (28 days) since the last successful tick or pool
+  start, permissionless `tick` settles the round.
 - Tick normally accrues `(N - 1) * round_assets` to
   `_pending_payout[token_id][round_idx]`. If an underwater misser cannot cover
   the full obligation, tick accrues the liquid deposits plus assets recovered
@@ -164,7 +167,7 @@ reflects not-created, pending, stale, ongoing, and ended states.
 
 - Participant counts: `6` or `12`
 - Miss penalty: `5` bps
-- Round duration: `40 days`
+- Minimum tick interval (`_MIN_TIME_INTERVAL`): `28 days`
 - Stale bounds: `3` to `7 days`
 - Creation fee cap: `0.001 ETH`
 - Yield fee cap: `505` bps

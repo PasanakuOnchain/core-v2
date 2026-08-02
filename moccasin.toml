@@ -7,20 +7,27 @@ dependencies = ["snekmate"]
 [networks.pyevm]
 is_zksync = false
 
-[networks.ethereum]
-url = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
-chain_id = 1
-fork = true
+[networks.base]
+url = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+chain_id = 8453
 block_identifier = "safe"
-prompt_live = false
-save_to_db = false
-live_or_staging = false
-
-[networks.ethereum.contracts]
-usdc = { address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }
-fluid_fusdc = { address = "0x9Fb7b4477576Fe5B32be4C1843aFB1e55F251B33" }
-
-[networks.arbitrum-sepolia]
-url = "https://arbitrum-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
-chain_id = 421614
 save_to_db = true
+explorer_uri = "https://base.blockscout.com/"
+explorer_type = "blockscout"
+explorer_api_key = "${BLOCKSCOUT_API_KEY}"
+
+[networks.base-fork]
+url = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+chain_id = 8453
+block_identifier = "safe"
+save_to_db = false
+fork = true
+
+[networks.base.contracts]
+usdc = { address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }
+fluid_fusdc = { address = "0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169" }
+
+# Moccasin does not inherit contracts from `base`; keep these in sync.
+[networks.base-fork.contracts]
+usdc = { address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }
+fluid_fusdc = { address = "0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169" }

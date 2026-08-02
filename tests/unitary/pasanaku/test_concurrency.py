@@ -1,6 +1,6 @@
 import boa
 
-from tests.utils.constants import DAYS_40, PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW
+from tests.utils.constants import _MIN_TIME_INTERVAL, PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW
 from tests.utils.helpers import (
     create_and_join_all,
     deposit_all_obligors,
@@ -63,6 +63,6 @@ def test_concurrent_pool_escrow_is_isolated(
         PASANAKU_AMOUNT_RAW,
     )
     escrow_b = pasanaku_contract.pool_escrow(token_b)
-    boa.env.time_travel(seconds=DAYS_40)
+    boa.env.time_travel(seconds=_MIN_TIME_INTERVAL)
     pasanaku_contract.tick(token_a)
     assert pasanaku_contract.pool_escrow(token_b) == escrow_b

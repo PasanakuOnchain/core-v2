@@ -18,10 +18,11 @@ vault. The creator chooses a six- or twelve-participant pool.
    Pre-start vault appreciation is returned to each depositor's free shares;
    the recipient roster is shuffled; distributable pool yield starts at this
    point.
-4. During each 40-day round, every participant except the current recipient
-   deposits exactly `round_assets`.
-5. Anyone may call `tick` after the round deadline. The recipient then pulls
-   the accrued payout through `claim_round_payout`.
+4. During each round, every participant except the current recipient deposits
+   exactly `round_assets`.
+5. Anyone may call `tick` after the 28-day minimum interval since the last
+   successful tick (or pool start). The recipient then pulls the accrued
+   payout through `claim_round_payout`.
 6. The final tick returns principal shares, covers principal shortfalls from
    the pool reserve, redeems the yield fee directly to the owner, and
    distributes the remaining yield by shuffled participant position.
@@ -131,7 +132,8 @@ It verifies that `vault.asset()` matches `asset`. The owner may set:
 `collect_fees` transfers accumulated native creation fees to `owner()`.
 It never transfers ERC-20 reserve shares.
 
-Production deployment uses:
+Production deployment targets Base (`networks.base` in
+[`moccasin.toml`](moccasin.toml), chain id `8453`) and uses:
 
 ```text
 PASANAKU_ASSET
@@ -140,9 +142,17 @@ PASANAKU_CREATE_FEE_WEI  # optional, defaults to 0
 PASANAKU_YIELD_FEE_BPS   # optional, defaults to 0
 ```
 
+```bash
+uv run mox run deploy --network base
+```
+
 ## Development
 
 Requirements: Python 3.12+, `uv`, Moccasin, Titanoboa, and Vyper 0.4.3.
+Copy [`.env.example`](.env.example) to `.env` and set `ALCHEMY_API_KEY`
+(and optionally `BLOCKSCOUT_API_KEY` for explorer verify). Moccasin is
+configured for Base (`networks.base` / `networks.base-fork`, chain id
+`8453`).
 
 ```bash
 uv sync
@@ -152,24 +162,24 @@ uv run mox test
 
 `mox test` runs unitary tests on the local `pyevm` network and skips the
 Fluid fUSDC fork suite. Run the fork parity suite through Moccasin's
-configured Ethereum mainnet fork:
+configured Base fork (`ALCHEMY_API_KEY` in `.env`):
 
 ```bash
-uv run mox test tests/fork --network ethereum
+uv run mox test tests/fork --network base-fork
 # or only the fork marker:
-uv run mox test -m fork --network ethereum
+uv run mox test -m fork --network base-fork
 ```
 
 Override the RPC from [`moccasin.toml`](moccasin.toml) when needed:
 
 ```bash
-uv run mox test tests/fork --network ethereum --url "$ETH_RPC_URL"
+uv run mox test tests/fork --network base-fork --url "$BASE_RPC_URL"
 ```
 
-Plain pytest still works as a fallback (`ETH_RPC_URL` / `FORK_URL`, optional
-`FORK_BLOCK`). The suite uses mainnet USDC at
-`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` and Fluid fUSDC at
-`0x9Fb7b4477576Fe5B32be4C1843aFB1e55F251B33`.
+Plain pytest still works as a fallback (`BASE_RPC_URL` / `FORK_URL`, optional
+`FORK_BLOCK`). The suite uses Base USDC at
+`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` and Fluid fUSDC at
+`0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169`.
 
 Local mocks include an ERC-20 and an exchange-rate-adjustable ERC-4626 vault:
 
@@ -185,6 +195,9 @@ script/deploy.py
 script/deploy_mocks.py
 tests/mocks/
 tests/unitary/
-docs/erc4626-collateral-accounting-discussion.md
+tests/fork/
+tests/utils/
+moccasin.toml
+.env.example
 CONTEXT.md
 ```

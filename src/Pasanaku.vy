@@ -61,15 +61,15 @@ exports: (
 
 
 # @dev Lower bound for configurable stale timeout (seconds).
-_3_DAYS: constant(uint256) = 3 * 24 * 60 * 60
+_DAYS_3: constant(uint256) = 3 * 24 * 60 * 60
 
 
 # @dev Upper bound for configurable stale timeout (seconds).
-_7_DAYS: constant(uint256) = 7 * 24 * 60 * 60
+_DAYS_7: constant(uint256) = 7 * 24 * 60 * 60
 
 
 # @dev Minimum interval between ticks / rounds (seconds).
-_40_DAYS: constant(uint256) = 40 * 24 * 60 * 60
+_MIN_TIME_INTERVAL: constant(uint256) = 28 * 24 * 60 * 60
 
 
 # @dev Allowed participant counts are exactly 6 or 12 (not a range).
@@ -329,7 +329,7 @@ def __init__(asset_: IERC20, vault_: IERC4626, fee_: uint256, yield_fee_: uint25
 
     _ASSET = asset_
     _VAULT = vault_
-    self._stale_time = _7_DAYS
+    self._stale_time = _DAYS_7
     self._fee = fee_
     self._yield_fee = yield_fee_
 
@@ -606,7 +606,7 @@ def tick(token_id: uint256):
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started != 0  # dev: pasanaku not started
     assert pasanaku.ended == 0  # dev: pasanaku ended
-    assert pasanaku.updated + _40_DAYS <= block.timestamp  # dev: not enough time passed
+    assert pasanaku.updated + _MIN_TIME_INTERVAL <= block.timestamp  # dev: not enough time passed
 
     round_idx: uint256 = pasanaku.index
     recipient: address = pasanaku.participants[round_idx]
@@ -675,7 +675,7 @@ def set_stale_time(stale_time: uint256):
     @param stale_time The new timeout in seconds.
     """
     ow._check_owner()
-    assert stale_time >= _3_DAYS and stale_time <= _7_DAYS  # dev: stale time out of range
+    assert stale_time >= _DAYS_3 and stale_time <= _DAYS_7  # dev: stale time out of range
     self._stale_time = stale_time
     log StaleTimeSet(stale_time=stale_time)
 
