@@ -1,6 +1,10 @@
 import boa
 
-from tests.utils.constants import _MIN_TIME_INTERVAL, PARTICIPANT_COUNT, PASANAKU_AMOUNT_RAW
+from tests.utils.constants import (
+    _MIN_TIME_INTERVAL,
+    PARTICIPANT_COUNT,
+    PASANAKU_AMOUNT_RAW,
+)
 from tests.utils.helpers import (
     create_and_join_all,
     deposit_all_obligors,

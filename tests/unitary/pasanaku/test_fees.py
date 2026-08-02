@@ -89,9 +89,7 @@ def test_constructor_fee_above_max_reverts(usdc_contract, vault_contract, owner)
             )
 
 
-def test_constructor_yield_fee_above_max_reverts(
-    usdc_contract, vault_contract, owner
-):
+def test_constructor_yield_fee_above_max_reverts(usdc_contract, vault_contract, owner):
     with boa.reverts(dev="yield fee is out of range"):
         with boa.env.prank(owner):
             pasanaku.deploy(
@@ -183,9 +181,7 @@ def test_collect_fees_sends_native_balance_to_owner(
     assert boa.env.get_balance(owner) == owner_balance + SAMPLE_FEE
 
 
-def test_collect_fees_when_empty_leaves_owner_balance(
-    pasanaku_contract, owner
-):
+def test_collect_fees_when_empty_leaves_owner_balance(pasanaku_contract, owner):
     owner_balance = boa.env.get_balance(owner)
     pasanaku_contract.collect_fees()
     assert boa.env.get_balance(owner) == owner_balance
@@ -230,12 +226,11 @@ def test_end_yield_fee_matches_surplus_formula(
     principal_shares = vault_contract.previewWithdraw(pledge(amount))
     fee_shares = pasanaku_contract.eval("self._collected_fee_shares")
     yield_surplus = (
-        contract_shares
-        - sum(initial_free)
-        - principal_shares * PARTICIPANT_COUNT
+        contract_shares - sum(initial_free) - principal_shares * PARTICIPANT_COUNT
     )
     assert fee_shares == yield_surplus * pool_yield_fee // BPS_PRECISION
     assert fee_shares == (
-        yield_surplus * pasanaku_contract._constants._MAX_YIELD_FEE
+        yield_surplus
+        * pasanaku_contract._constants._MAX_YIELD_FEE
         // pasanaku_contract._constants._BPS_PRECISION
     )
