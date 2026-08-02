@@ -36,11 +36,11 @@ target_shares = vault.previewWithdraw(pledge_assets)
 
 Then for each participant:
 
-| Condition | Effect |
-| --- | --- |
-| `locked > target_shares` | Excess returns to free shares (pre-start appreciation) |
+| Condition                | Effect                                                           |
+| ------------------------ | ---------------------------------------------------------------- |
+| `locked > target_shares` | Excess returns to free shares (pre-start appreciation)           |
 | `locked < target_shares` | Top up from free shares, or revert (`pre-start collateral loss`) |
-| equal | No movement |
+| equal                    | No movement                                                      |
 
 Finally each participant is set to:
 

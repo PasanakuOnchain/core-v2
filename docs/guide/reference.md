@@ -4,17 +4,17 @@ Quick lookup for constants, external API, and events. Behavior details live in t
 
 ## Constants
 
-| Name | Value | Meaning |
-| --- | --- | --- |
-| `_MIN_PARTICIPANT_COUNT` | `6` | Allowed pool size |
-| `_MAX_PARTICIPANT_COUNT` | `12` | Allowed pool size |
-| `_MISS_PENALTY_BPS` | `5` | 0.05% miss penalty |
-| `_BPS_PRECISION` | `10_000` | Basis-point denominator |
-| `_MIN_TIME_INTERVAL` | `28 days` | Minimum time between ticks |
-| `_DAYS_3` / `_DAYS_7` | `3` / `7` days | Stale-time bounds |
-| `_MAX_FEE` | `0.001 ETH` | Creation fee cap |
-| `_MAX_YIELD_FEE` | `505` | Yield fee cap (bps) |
-| `_TOKEN_AMOUNT` | `1` | ERC-1155 amount per member |
+| Name                     | Value          | Meaning                    |
+| ------------------------ | -------------- | -------------------------- |
+| `_MIN_PARTICIPANT_COUNT` | `6`            | Allowed pool size          |
+| `_MAX_PARTICIPANT_COUNT` | `12`           | Allowed pool size          |
+| `_MISS_PENALTY_BPS`      | `5`            | 0.05% miss penalty         |
+| `_BPS_PRECISION`         | `10_000`       | Basis-point denominator    |
+| `_MIN_TIME_INTERVAL`     | `28 days`      | Minimum time between ticks |
+| `_DAYS_3` / `_DAYS_7`    | `3` / `7` days | Stale-time bounds          |
+| `_MAX_FEE`               | `0.001 ETH`    | Creation fee cap           |
+| `_MAX_YIELD_FEE`         | `505`          | Yield fee cap (bps)        |
+| `_TOKEN_AMOUNT`          | `1`            | ERC-1155 amount per member |
 
 ## Public API
 
@@ -63,22 +63,22 @@ Quick lookup for constants, external API, and events. Behavior details live in t
 
 ## Events
 
-| Event | When |
-| --- | --- |
-| `CollateralDeposited` | Free-share deposit |
-| `CollateralWithdrawn` | Exact-asset withdraw |
-| `CollateralRedeemed` | Exact-share redeem |
-| `PasanakuCreated` | Pool created |
-| `PasanakuJoined` | Participant joined |
-| `PasanakuLeft` | Stale leave |
-| `PasanakuStarted` | Roster locked / rounds begin |
-| `PasanakuDeposited` | Round obligation funded |
-| `PasanakuTicked` | Round settled, payout accrued |
-| `PasanakuReserved` | Miss covered / penalty reserved |
-| `PasanakuSurplusDistributed` | End surplus + fee accounting |
-| `PasanakuEnded` | Final tick completed |
-| `StaleTimeSet` / `FeeSet` / `YieldFeeSet` | Admin updates |
-| `FeesCollected` | Native creation fees or redeemed yield-fee assets |
+| Event                                     | When                                              |
+| ----------------------------------------- | ------------------------------------------------- |
+| `CollateralDeposited`                     | Free-share deposit                                |
+| `CollateralWithdrawn`                     | Exact-asset withdraw                              |
+| `CollateralRedeemed`                      | Exact-share redeem                                |
+| `PasanakuCreated`                         | Pool created                                      |
+| `PasanakuJoined`                          | Participant joined                                |
+| `PasanakuLeft`                            | Stale leave                                       |
+| `PasanakuStarted`                         | Roster locked / rounds begin                      |
+| `PasanakuDeposited`                       | Round obligation funded                           |
+| `PasanakuTicked`                          | Round settled, payout accrued                     |
+| `PasanakuReserved`                        | Miss covered / penalty reserved                   |
+| `PasanakuSurplusDistributed`              | End surplus + fee accounting                      |
+| `PasanakuEnded`                           | Final tick completed                              |
+| `StaleTimeSet` / `FeeSet` / `YieldFeeSet` | Admin updates                                     |
+| `FeesCollected`                           | Native creation fees or redeemed yield-fee assets |
 
 ## Deploy and networks
 

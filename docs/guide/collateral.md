@@ -4,12 +4,12 @@ Vault shares are the ownership unit. The Pasanaku contract is the sole ERC-4626 
 
 ## Storage buckets
 
-| Storage | Meaning |
-| --- | --- |
-| `_free_shares[user]` | Withdrawable or pledgeable shares |
-| `_locked_shares[token_id][user]` | Shares committed to one pool |
+| Storage                               | Meaning                                            |
+| ------------------------------------- | -------------------------------------------------- |
+| `_free_shares[user]`                  | Withdrawable or pledgeable shares                  |
+| `_locked_shares[token_id][user]`      | Shares committed to one pool                       |
 | `_locked_asset_basis[token_id][user]` | Fixed underlying principal reference for that lock |
-| `_pool_reserve_shares[token_id]` | Miss-penalty shares owned by the pool |
+| `_pool_reserve_shares[token_id]`      | Miss-penalty shares owned by the pool              |
 
 `locked_asset_basis` is an economic basis, not a live second balance. Share market value moves with the vault; basis changes only when principal (and miss penalty headroom) is slashed during settlement.
 

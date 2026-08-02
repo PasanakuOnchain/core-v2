@@ -8,10 +8,10 @@ Say “six-participant pasanaku” or “twelve-participant pasanaku.” Do not 
 
 Each deployed instance binds:
 
-| Immutable | Role |
-| --- | --- |
-| `_ASSET` | Underlying ERC-20 for round deposits and payouts |
-| `_VAULT` | ERC-4626 vault that holds collateral shares |
+| Immutable | Role                                             |
+| --------- | ------------------------------------------------ |
+| `_ASSET`  | Underlying ERC-20 for round deposits and payouts |
+| `_VAULT`  | ERC-4626 vault that holds collateral shares      |
 
 The constructor requires `vault.asset() == asset`. Pools do not choose assets or vaults. Many pools can run concurrently on the same instance; `token_id` scopes locked shares, reserve, escrow, and payouts.
 

@@ -66,10 +66,12 @@
   --vp-c-default-soft: rgba(26, 26, 26, 0.06);
 
   /* Typography — mono body like the dapp */
-  --vp-font-family-base: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono",
-    Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
-  --vp-font-family-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono",
-    Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+  --vp-font-family-base:
+    ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono", Menlo, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --vp-font-family-mono:
+    ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono", Menlo, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 
   /* Buttons — hard edges, visible border */
   --vp-button-brand-border: #1a1a1a;

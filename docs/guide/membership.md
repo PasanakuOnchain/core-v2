@@ -28,13 +28,13 @@ Exported module helpers that remain available include `supportsInterface`, `bala
 
 `uri(token_id)` selects a fixed IPFS CID from lifecycle state:
 
-| State | Condition |
-| --- | --- |
-| Not created | `token_id >= _counter` |
-| Ended | `ended != 0` |
-| Ongoing | `started != 0` |
-| Stale | pending and `created + stale_time <= now` |
-| Pending | otherwise |
+| State       | Condition                                 |
+| ----------- | ----------------------------------------- |
+| Not created | `token_id >= _counter`                    |
+| Ended       | `ended != 0`                              |
+| Ongoing     | `started != 0`                            |
+| Stale       | pending and `created + stale_time <= now` |
+| Pending     | otherwise                                 |
 
 Constants used in tests (`URI_NOT_CREATED`, `URI_ENDED`, `URI_ONGOING`, `URI_STALE`, `URI_PENDING`) match these branches.
 

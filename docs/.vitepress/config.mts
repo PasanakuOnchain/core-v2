@@ -2,8 +2,7 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "Pasanaku",
-  description:
-    "In-depth implementation guide for the Pasanaku rotating savings protocol",
+  description: "In-depth implementation guide for the Pasanaku rotating savings protocol",
   cleanUrls: true,
   themeConfig: {
     nav: [
