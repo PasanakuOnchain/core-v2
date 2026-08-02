@@ -1,0 +1,197 @@
+/**
+ * Curve Legacy theme — mirrors pasanaku/client tokens on VitePress.
+ * VitePress: :root = light, .dark = dark (inverse of the dapp default).
+ */
+
+@font-face {
+  font-family: "Fifties";
+  src: url("/fonts/Fifties.ttf") format("truetype");
+  font-display: swap;
+}
+
+:root {
+  /* Surfaces */
+  --vp-c-bg: #f0f0f0;
+  --vp-c-bg-alt: #ffffff;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f4f4f4;
+
+  /* Text */
+  --vp-c-text-1: #1a1a1a;
+  --vp-c-text-2: #555555;
+  --vp-c-text-3: #777777;
+
+  /* Borders */
+  --vp-c-border: #b0b0b0;
+  --vp-c-divider: #b0b0b0;
+  --vp-c-gutter: #b0b0b0;
+
+  /* Brand — terracotta */
+  --vp-c-brand-1: #b45c38;
+  --vp-c-brand-2: #943f22;
+  --vp-c-brand-3: #b45c38;
+  --vp-c-brand-soft: rgba(180, 92, 56, 0.14);
+
+  /* Semantic — accent green / warning / error from dapp light */
+  --vp-c-success-1: #1e6b32;
+  --vp-c-success-2: #2a7a4a;
+  --vp-c-success-3: #2a7a4a;
+  --vp-c-success-soft: rgba(42, 122, 74, 0.14);
+
+  --vp-c-warning-1: #9a5a00;
+  --vp-c-warning-2: #9a5a00;
+  --vp-c-warning-3: #9a5a00;
+  --vp-c-warning-soft: rgba(154, 90, 0, 0.14);
+
+  --vp-c-danger-1: #a01818;
+  --vp-c-danger-2: #a01818;
+  --vp-c-danger-3: #a01818;
+  --vp-c-danger-soft: rgba(160, 24, 24, 0.14);
+
+  /* Tip / note follow brand */
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-c-note-1: var(--vp-c-brand-1);
+  --vp-c-note-2: var(--vp-c-brand-2);
+  --vp-c-note-3: var(--vp-c-brand-3);
+  --vp-c-note-soft: var(--vp-c-brand-soft);
+
+  /* Default (alt buttons, subtle fills) */
+  --vp-c-default-1: #b0b0b0;
+  --vp-c-default-2: #e8e8e8;
+  --vp-c-default-3: #ffffff;
+  --vp-c-default-soft: rgba(26, 26, 26, 0.06);
+
+  /* Typography — mono body like the dapp */
+  --vp-font-family-base: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono",
+    Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+  --vp-font-family-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "SF Mono",
+    Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Buttons — hard edges, visible border */
+  --vp-button-brand-border: #1a1a1a;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #b45c38;
+  --vp-button-brand-hover-border: #1a1a1a;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #943f22;
+  --vp-button-brand-active-border: #1a1a1a;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: #943f22;
+
+  --vp-button-alt-border: #1a1a1a;
+  --vp-button-alt-text: #1a1a1a;
+  --vp-button-alt-bg: #ffffff;
+  --vp-button-alt-hover-border: #1a1a1a;
+  --vp-button-alt-hover-text: #1a1a1a;
+  --vp-button-alt-hover-bg: #f4f4f4;
+  --vp-button-alt-active-border: #1a1a1a;
+  --vp-button-alt-active-text: #1a1a1a;
+  --vp-button-alt-active-bg: #e8e8e8;
+
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+}
+
+.dark {
+  --vp-c-bg: #1a1a1a;
+  --vp-c-bg-alt: #242424;
+  --vp-c-bg-elv: #242424;
+  --vp-c-bg-soft: #2c2c2c;
+
+  --vp-c-text-1: #e8e8e8;
+  --vp-c-text-2: #b0b0b0;
+  --vp-c-text-3: #888888;
+
+  --vp-c-border: #3a3a3a;
+  --vp-c-divider: #3a3a3a;
+  --vp-c-gutter: #000000;
+
+  --vp-c-brand-1: #c4704b;
+  --vp-c-brand-2: #a85c3c;
+  --vp-c-brand-3: #c4704b;
+  --vp-c-brand-soft: rgba(196, 112, 75, 0.16);
+
+  --vp-c-success-1: #6bbf6f;
+  --vp-c-success-2: #3d8b5f;
+  --vp-c-success-3: #3d8b5f;
+  --vp-c-success-soft: rgba(61, 139, 95, 0.16);
+
+  --vp-c-warning-1: #d4a017;
+  --vp-c-warning-2: #d4a017;
+  --vp-c-warning-3: #d4a017;
+  --vp-c-warning-soft: rgba(212, 160, 23, 0.16);
+
+  --vp-c-danger-1: #e07070;
+  --vp-c-danger-2: #e07070;
+  --vp-c-danger-3: #e07070;
+  --vp-c-danger-soft: rgba(224, 112, 112, 0.16);
+
+  --vp-c-default-1: #3a3a3a;
+  --vp-c-default-2: #2c2c2c;
+  --vp-c-default-3: #242424;
+  --vp-c-default-soft: rgba(232, 232, 232, 0.06);
+
+  --vp-button-brand-border: #000000;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #c4704b;
+  --vp-button-brand-hover-border: #000000;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #a85c3c;
+  --vp-button-brand-active-border: #000000;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: #a85c3c;
+
+  --vp-button-alt-border: #3a3a3a;
+  --vp-button-alt-text: #e8e8e8;
+  --vp-button-alt-bg: #242424;
+  --vp-button-alt-hover-border: #3a3a3a;
+  --vp-button-alt-hover-text: #e8e8e8;
+  --vp-button-alt-hover-bg: #2c2c2c;
+  --vp-button-alt-active-border: #3a3a3a;
+  --vp-button-alt-active-text: #e8e8e8;
+  --vp-button-alt-active-bg: #2c2c2c;
+}
+
+/* Fifties logotype — home hero + nav title */
+.VPHero .name,
+.VPNavBarTitle .title {
+  font-family: "Fifties", Georgia, "Times New Roman", serif;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+}
+
+.VPNavBarTitle .title {
+  color: var(--vp-c-brand-1);
+  font-size: 1.35rem;
+}
+
+/* Sharp corners — Legacy Mode */
+.VPButton,
+.VPFeature,
+.VPBadge,
+.custom-block,
+.vp-doc div[class*="language-"],
+.vp-doc .vp-code-group,
+.vp-doc .vp-code-group .tabs,
+.VPDocFooter .pager-link,
+.VPLocalSearchBox,
+.VPLocalSearchBox .result,
+.DocSearch-Button,
+.VPNavBarSearch .DocSearch-Button,
+.VPNavScreenAppearance,
+.VPMenu,
+.VPMenuLink .link,
+.VPSkipLink,
+.VPLocalNavOutlineDropdown .items,
+.VPTeamMembersItem .profile,
+.NotFound .action .VPButton {
+  border-radius: 0 !important;
+}
+
+/* Slightly stronger chrome on feature cards */
+.VPFeature {
+  border: 1px solid var(--vp-c-border);
+}
