@@ -8,7 +8,7 @@ Short definitions for terms you will see in the app and this user guide.
 | **Circle / pool** | One pasanaku instance identified by a pool ID. |
 | **Participants** | Exactly **6** or **12** members; chosen at create and locked at start. |
 | **Per-round amount** | Fixed asset amount each obligor deposits in a round. |
-| **Pledge** | Locked collateral to create/join: `per-round × N` plus **0.05%** miss headroom. |
+| **Pledge** | Locked collateral to create/join: `per-round × N` plus **1%** miss headroom. |
 | **Free collateral** | Shares you can withdraw or pledge. |
 | **Locked collateral** | Shares committed to a pool until end or leave (pending/stale). |
 | **Vault / ERC-4626** | Yield-bearing vault that holds collateral; the contract owns the shares. |
@@ -26,7 +26,7 @@ Short definitions for terms you will see in the app and this user guide.
 | **Claim** | Recipient pulls a pending round payout. |
 | **Pull payout** | Funds wait until claim; later ticks do not require prior claims. |
 | **Pool reserve** | Shares from miss penalties (and related cover), owned by the pool. |
-| **Miss** | Obligor did not deposit before tick; collateral may cover + 0.05% penalty. |
+| **Miss** | Obligor did not deposit before tick; collateral may cover + 1% penalty. |
 | **Yield / surplus** | Vault appreciation after start, shared at end by position weights. |
 | **Yield fee** | Optional cut of end surplus to the protocol owner (capped; snapshotted at create). |
 | **Creation fee** | Optional native ETH fee to create a pool (capped). |

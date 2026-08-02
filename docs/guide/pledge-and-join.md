@@ -12,7 +12,7 @@ penalty_headroom = principal * _MISS_PENALTY_BPS / 10_000
 pledge = principal + penalty_headroom
 ```
 
-`_MISS_PENALTY_BPS` is `5` (0.05%, not 5%). The pure view `pledge(round_assets, participant_count)` returns this asset amount after validating `N`.
+`_MISS_PENALTY_BPS` is `100` (1%). The pure view `pledge(round_assets, participant_count)` returns this asset amount after validating `N`.
 
 ## `_lock_pledge`
 

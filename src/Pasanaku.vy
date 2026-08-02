@@ -83,8 +83,8 @@ _MAX_PARTICIPANT_COUNT: constant(uint256) = 12
 _BPS_PRECISION: constant(uint256) = 10_000
 
 
-# @dev Miss penalty: 5 BPS (0.05%).
-_MISS_PENALTY_BPS: constant(uint256) = 5
+# @dev Miss penalty: 100 BPS (1%).
+_MISS_PENALTY_BPS: constant(uint256) = 100
 
 
 # @dev Maximum yield fee: 505 BPS (5.05%).

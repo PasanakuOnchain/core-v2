@@ -8,7 +8,7 @@ Quick lookup for constants, external API, and events. Behavior details live in t
 | ------------------------ | -------------- | -------------------------- |
 | `_MIN_PARTICIPANT_COUNT` | `6`            | Allowed pool size          |
 | `_MAX_PARTICIPANT_COUNT` | `12`           | Allowed pool size          |
-| `_MISS_PENALTY_BPS`      | `5`            | 0.05% miss penalty         |
+| `_MISS_PENALTY_BPS`      | `100`          | 1% miss penalty            |
 | `_BPS_PRECISION`         | `10_000`       | Basis-point denominator    |
 | `_MIN_TIME_INTERVAL`     | `28 days`      | Minimum time between ticks |
 | `_DAYS_3` / `_DAYS_7`    | `3` / `7` days | Stale-time bounds          |

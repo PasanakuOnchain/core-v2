@@ -54,7 +54,7 @@ For `N` equal to `6` or `12`:
 
 ```text
 principal = round_assets * N
-penalty_headroom = principal * 5 / 10_000
+penalty_headroom = principal * 100 / 10_000
 pledge = principal + penalty_headroom
 ```
 

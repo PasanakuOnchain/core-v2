@@ -77,7 +77,7 @@ penalty_headroom = principal * MISS_PENALTY_BPS / 10_000
 pledge = principal + penalty_headroom
 ```
 
-`MISS_PENALTY_BPS` is `5`, meaning 0.05%, not 5%.
+`MISS_PENALTY_BPS` is `100`, meaning 1%.
 
 Create and join convert the asset obligation with `vault.previewWithdraw` and
 move the required shares from free to pool-locked accounting.
@@ -116,7 +116,7 @@ Do not say that tick transfers the payout directly to the recipient.
 
 If an obligor misses:
 
-1. The contract prices principal plus the 5-bps penalty with one
+1. The contract prices principal plus the 100-bps penalty with one
    `previewWithdraw` call so rounding remains aligned.
 2. If locked shares cover the result, the vault withdraws `round_assets` into
    liquid pool escrow and the remaining penalty shares move into
@@ -166,7 +166,7 @@ reflects not-created, pending, stale, ongoing, and ended states.
 ## Quick constants
 
 - Participant counts: `6` or `12`
-- Miss penalty: `5` bps
+- Miss penalty: `100` bps
 - Minimum tick interval (`_MIN_TIME_INTERVAL`): `28 days`
 - Stale bounds: `3` to `7 days`
 - Creation fee cap: `0.001 ETH`

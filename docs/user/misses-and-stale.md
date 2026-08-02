@@ -16,7 +16,7 @@ Keep the recipient whole when an obligor does not deposit before tick.
 
 If an obligor misses:
 
-1. The contract uses their **locked collateral** to cover the owed per-round amount plus a **0.05%** penalty.
+1. The contract uses their **locked collateral** to cover the owed per-round amount plus a **1%** penalty.
 2. Recovered assets go toward that round’s pot (via pool escrow).
 3. Penalty shares move into the **pool reserve** — not to the protocol owner.
 4. If locked shares cannot cover the full amount (**underwater** miss), remaining shares are redeemed into escrow, that member’s lock is cleared, and the round pot may be **smaller** than a full `(N − 1) × per-round` payout.
@@ -27,7 +27,7 @@ Honest participation is cheaper than missing: you still lose the obligation from
 
 | Case | Recipient pot | Misser |
 | ---- | ------------- | ------ |
-| Solvent miss | Full (from deposits + collateral recovery) | Obligation covered; 0.05% to pool reserve |
+| Solvent miss | Full (from deposits + collateral recovery) | Obligation covered; 1% to pool reserve |
 | Underwater miss | May be reduced | Lock cleared after partial recovery |
 
 ## Stale unfilled pools

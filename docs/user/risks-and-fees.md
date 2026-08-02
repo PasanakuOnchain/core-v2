@@ -21,7 +21,7 @@ Settlement continues even if the vault lost value; shortfalls are covered from t
 | --- | -------- | ------------ | --- |
 | Creation fee | Creator (native ETH) | Protocol owner via collect | 0.001 ETH |
 | Yield fee | Taken from end surplus | Protocol owner as underlying | 505 bps (5.05%) |
-| Miss penalty | Misser’s collateral | **Pool reserve** (not owner) | 5 bps (0.05%) of principal reference |
+| Miss penalty | Misser’s collateral | **Pool reserve** (not owner) | 100 bps (1%) of principal reference |
 
 Creation and yield fees are often set to zero; check the live deployment and create preflight in the app. Miss penalties always stay with the pool.
 

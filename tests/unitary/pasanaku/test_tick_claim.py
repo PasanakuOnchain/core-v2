@@ -496,7 +496,9 @@ def test_miss_reserves_penalty_when_combined_preview_gap_is_zero(
     defaulter = next(user for user in users if user != recipient)
     penalty = penalty_per_amount(amount)
     supply = vault_contract.totalSupply()
-    target_assets = supply * 999_999
+    # Share price high enough that amount and amount+penalty convert to the
+    # same share count (combined preview gap is zero).
+    target_assets = supply * (amount + penalty)
     donation = target_assets - vault_contract.totalAssets()
     with boa.env.prank(owner):
         usdc_contract.mint(owner, donation)

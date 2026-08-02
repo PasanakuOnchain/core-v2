@@ -37,7 +37,7 @@ Leave is available after the pool becomes **stale** (still not started). After s
 
 ## Common mistakes
 
-- Underfunding the pledge (remember the 0.05% penalty headroom).
+- Underfunding the pledge (remember the 1% penalty headroom).
 - Assuming you can change size or per-round amount after create — they are fixed.
 - Waiting forever on a pool that went **stale** — leave to reclaim collateral.
 - Confusing creation fee (ETH to the protocol owner) with miss penalties (those stay in the pool).

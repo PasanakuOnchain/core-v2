@@ -25,14 +25,14 @@ You do not hold vault shares in your wallet through this path. The Pasanaku cont
 | Locked | Not withdraw until unlock | Pledge in a pending or active pool |
 | Reserve | Not yours personally | Pool penalties / shortfall cover |
 
-When you create or join, the protocol locks a **pledge**: principal equal to `per-round amount × participant count`, plus **0.05%** headroom for a miss penalty.
+When you create or join, the protocol locks a **pledge**: principal equal to `per-round amount × participant count`, plus **1%** headroom for a miss penalty.
 
 Example (six-participant circle, 100 USDC per round):
 
 ```text
 principal = 100 × 6 = 600 USDC
-penalty headroom = 600 × 0.05% = 0.3 USDC
-pledge ≈ 600.3 USDC of vault share value
+penalty headroom = 600 × 1% = 6 USDC
+pledge ≈ 606 USDC of vault share value
 ```
 
 ## Statuses / outcomes
