@@ -154,6 +154,14 @@ Copy [`.env.example`](.env.example) to `.env` and set `ALCHEMY_API_KEY`
 configured for Base (`networks.base` / `networks.base-fork`, chain id
 `8453`).
 
+### Technical docs
+
+The in-depth implementation guide is a VitePress site under [`docs/`](docs/):
+
+```bash
+cd docs && npm install && npm run docs:dev
+```
+
 ```bash
 uv sync
 uv run mox compile
@@ -197,6 +205,7 @@ tests/mocks/
 tests/unitary/
 tests/fork/
 tests/utils/
+docs/                 # VitePress implementation guide
 moccasin.toml
 .env.example
 CONTEXT.md
