@@ -5,6 +5,22 @@ export default defineConfig({
   description:
     "User guide and implementation docs for the Pasanaku rotating savings protocol",
   cleanUrls: true,
+  head: [
+    [
+      "link",
+      {
+        id: "app-favicon",
+        rel: "icon",
+        type: "image/x-icon",
+        href: "/icon.ico",
+      },
+    ],
+    [
+      "script",
+      {},
+      `(()=>{const e=localStorage.getItem("vitepress-theme-appearance")||"auto",a=window.matchMedia("(prefers-color-scheme: dark)").matches,d=!e||e==="auto"?a:e==="dark",f=document.getElementById("app-favicon");f&&f.setAttribute("href",d?"/icon-dark.ico":"/icon.ico")})();`,
+    ],
+  ],
   themeConfig: {
     nav: [
       { text: "User guide", link: "/user/getting-started" },
