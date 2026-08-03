@@ -3,11 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
     "docs:dev": "vitepress dev",
     "docs:build": "vitepress build",
     "docs:preview": "vitepress preview",
     "format": "oxfmt",
     "format:check": "oxfmt --check"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
     "oxfmt": "^0.61.0",
