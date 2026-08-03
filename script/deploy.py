@@ -41,12 +41,6 @@ def deploy() -> VyperContract:
     print(f"Deployed Pasanaku at: {contract.address}")
     print("")
 
-    print("--------- VERIFYING PASANAKU ---------")
-    result = active_network.moccasin_verify(pasanaku)
-    result.wait_for_verification()
-    print("  Verified!")
-    print("")
-
     print("--------- DEPLOY COMPLETE ---------")
     return contract
 
