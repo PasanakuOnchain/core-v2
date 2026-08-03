@@ -1,7 +1,7 @@
 from typing import List
 
 from moccasin.boa_tools import VyperContract
-from tests.mocks import erc20_mock, erc4626_mock
+from tests.mocks import erc20_mock, erc4626_mock  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def deploy_mocks() -> List[VyperContract]:
