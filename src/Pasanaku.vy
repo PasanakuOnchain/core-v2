@@ -74,8 +74,6 @@ _MIN_TIME_INTERVAL: constant(uint256) = 28 * 24 * 60 * 60
 
 # @dev Allowed participant counts are exactly 6 or 12 (not a range).
 _MIN_PARTICIPANT_COUNT: constant(uint256) = 6
-
-
 _MAX_PARTICIPANT_COUNT: constant(uint256) = 12
 
 
