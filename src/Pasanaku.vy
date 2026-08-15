@@ -801,16 +801,8 @@ def uri(token_id: uint256) -> String[512]:
     @return The IPFS metadata URI for the token's current state.
     """
     if token_id >= self._counter:
-        return "ipfs://QmbcELYwEiVu6n6nJhHmdqTRPfWD6eNHiXZhixKvhjAznF"
-
-    pasanaku: Pasanaku = self._pasanakus[token_id]
-    if pasanaku.ended != 0:
-        return "ipfs://QmYA1EK6dEujhcdZMWbjk1gVoHyqEYDZoptHMzL8ppTfWH"
-    elif pasanaku.started != 0:
-        return "ipfs://QmYvMoHxQSPLbCaofRHEyskb7U5UEyq31gwH9pyM1WSEc4"
-    elif pasanaku.created + pasanaku.stale_time <= block.timestamp:
-        return "ipfs://QmcGBA3PSwZxq6RQQsWbUe4NNtbLCbaxuVpx1Jnv5qRF98"
-    return "ipfs://QmZ9PeXU9sUbax7SPAbyoBZawNqCrdgtEYXdipzMYi4Rsp"
+        return "ipfs://bafybeicxb3jsthydawpjye7arof5cjtqflnmpe6o3dln6yoqpwbf7hnsxa/pasanaku-invalid.png"
+    return "ipfs://bafybeicxb3jsthydawpjye7arof5cjtqflnmpe6o3dln6yoqpwbf7hnsxa/pasanaku.png"
 
 
 @external

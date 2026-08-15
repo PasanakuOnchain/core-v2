@@ -19,9 +19,8 @@ CASES = [
     ParityCase(test_soulbound.test_set_approval_for_all_reverts),
     ParityCase(test_soulbound.test_is_approved_for_all_always_false),
     ParityCase(test_soulbound.test_transfer_reverts_after_membership_mint),
-    ParityCase(test_uri.test_uri_unknown_token),
-    ParityCase(test_uri.test_uri_pending_and_stale),
-    ParityCase(test_uri.test_uri_started_and_ended),
+    ParityCase(test_uri.test_uri_unknown_token_returns_invalid),
+    ParityCase(test_uri.test_uri_created_token_returns_valid),
 ]
 
 
