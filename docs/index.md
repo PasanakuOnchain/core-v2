@@ -15,7 +15,7 @@ features:
   - title: Share-denominated collateral
     details: The contract owns vault shares. Free, locked, and reserve buckets are internal accounting—not separate vault positions.
   - title: Fixed membership
-    details: Each pool is exactly six or twelve participants. Size is chosen at create time and locked at start.
+    details: Each pool is exactly 3, 6, 9, or 12 participants. Size is chosen at create time and locked at start.
   - title: Pull payouts
     details: tick settles rounds into pending payouts. Recipients claim later; the pool can advance with unclaimed balances.
 ---

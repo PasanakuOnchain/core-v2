@@ -21,7 +21,7 @@ The same pattern appears under many names — tanda, susu, chit fund, and others
 | Cash or bank transfers | Onchain deposits and pull claims |
 | No automatic yield share | Vault appreciation pooled from start to end |
 
-Pasanaku is still a structured circle among exactly six or twelve people — not a bank and not an open-ended fund.
+Pasanaku is still a structured circle among exactly three, six, nine, or twelve people — not a bank and not an open-ended fund.
 
 ## Lifecycle
 

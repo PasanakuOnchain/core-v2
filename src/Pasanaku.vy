@@ -72,9 +72,10 @@ _DAYS_7: constant(uint256) = 7 * 24 * 60 * 60
 _MIN_TIME_INTERVAL: constant(uint256) = 28 * 24 * 60 * 60
 
 
-# @dev Allowed participant counts are exactly 6 or 12 (not a range).
-_MIN_PARTICIPANT_COUNT: constant(uint256) = 6
+# @dev Allowed participant counts are multiples of 3 from 3 through 12.
+_MIN_PARTICIPANT_COUNT: constant(uint256) = 3
 _MAX_PARTICIPANT_COUNT: constant(uint256) = 12
+_PARTICIPANT_COUNT_STEP: constant(uint256) = 3
 
 
 # @dev Basis-point denominator (100% = 10_000).
@@ -107,7 +108,7 @@ _VAULT: immutable(IERC4626)
 
 # @dev Fixed-membership rotating savings pool identified by `token_id`.
 # - round_assets: Per-round deposit obligation in underlying asset units.
-# - participant_count: Target size: exactly 6 or 12.
+# - participant_count: Target size: 3, 6, 9, or 12.
 # - participants: Shuffled roster; index `k` is the recipient of round `k`.
 # - index: Next round to settle via `tick`.
 # - created: Timestamp when the pool was created.
@@ -943,11 +944,12 @@ def _valid_participant_count(participant_count: uint256) -> bool:
     @dev Checks whether a participant count is one of the supported fixed
         sizes.
     @param participant_count The participant count to validate.
-    @return True when the count is 6 or 12.
+    @return True when the count is 3, 6, 9, or 12.
     """
     return (
-        participant_count == _MIN_PARTICIPANT_COUNT
-        or participant_count == _MAX_PARTICIPANT_COUNT
+        participant_count >= _MIN_PARTICIPANT_COUNT
+        and participant_count <= _MAX_PARTICIPANT_COUNT
+        and participant_count % _PARTICIPANT_COUNT_STEP == 0
     )
 
 

@@ -4,12 +4,12 @@ Open a new pasanaku or join one that is still filling.
 
 ## Goal
 
-Lock your pledge into a six- or twelve-participant pool and reach a full roster so rounds can start.
+Lock your pledge into a three-, six-, nine-, or twelve-participant pool and reach a full roster so rounds can start.
 
 ## Steps — create
 
 1. Supply enough [collateral](/user/collateral) for the pledge.
-2. Choose **participants**: exactly **6** or **12**.
+2. Choose **participants**: exactly **3**, **6**, **9**, or **12**.
 3. Set the **per-round amount** (each obligor’s deposit each round).
 4. Review any **creation fee** in ETH (owner-configured; may be zero; capped at 0.001 ETH).
 5. Confirm create — your pledge locks and the pool stays **pending** until full.

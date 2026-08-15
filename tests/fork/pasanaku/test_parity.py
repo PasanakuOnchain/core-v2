@@ -10,6 +10,7 @@ from tests.unitary.pasanaku import (
     test_lifecycle,
     test_tick_claim,
 )
+from tests.utils.constants import INVALID_PARTICIPANT_COUNTS, PARTICIPANT_COUNTS
 
 pytestmark = [pytest.mark.fork, pytest.mark.ignore_isolation]
 
@@ -22,7 +23,20 @@ CASES = [
     ParityCase(test_collateral.test_withdraw_burns_only_free_shares),
     ParityCase(test_collateral.test_redeem_returns_assets),
     ParityCase(test_collateral.test_locked_shares_cannot_be_withdrawn),
-    ParityCase(test_collateral.test_pledge_uses_configured_participant_count),
+    *[
+        ParityCase(
+            test_collateral.test_pledge_uses_configured_participant_count,
+            {"participant_count": participant_count},
+        )
+        for participant_count in PARTICIPANT_COUNTS
+    ],
+    *[
+        ParityCase(
+            test_collateral.test_pledge_rejects_unsupported_participant_count,
+            {"participant_count": participant_count},
+        )
+        for participant_count in INVALID_PARTICIPANT_COUNTS
+    ],
     ParityCase(test_concurrency.test_two_pools_can_run_on_same_vault),
     ParityCase(test_concurrency.test_concurrent_pool_escrow_is_isolated),
     ParityCase(test_deposit.test_obligor_deposit_is_recorded),
@@ -45,14 +59,21 @@ CASES = [
             test_lifecycle.test_create_rejects_unsupported_participant_count,
             {"participant_count": participant_count},
         )
-        for participant_count in (5, 7, 11, 13)
+        for participant_count in INVALID_PARTICIPANT_COUNTS
     ],
     *[
         ParityCase(
             test_lifecycle.test_pasanaku_starts_at_configured_size,
             {"participant_count": participant_count},
         )
-        for participant_count in (6, 12)
+        for participant_count in PARTICIPANT_COUNTS
+    ],
+    *[
+        ParityCase(
+            test_lifecycle.test_all_rounds_completes_for_supported_sizes,
+            {"participant_count": participant_count},
+        )
+        for participant_count in PARTICIPANT_COUNTS
     ],
     ParityCase(test_lifecycle.test_create_and_join_lock_shares),
     ParityCase(test_lifecycle.test_pre_start_yield_remains_with_depositor),

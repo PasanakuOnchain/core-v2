@@ -2,7 +2,7 @@
 
 Pasanaku is a single Vyper contract that runs fixed-membership rotating savings pools against one immutable ERC-20 asset and one immutable ERC-4626 vault. Vault shares are the canonical collateral unit.
 
-Say “six-participant pasanaku” or “twelve-participant pasanaku.” Do not describe size as a continuous range between six and twelve.
+Say “three-participant pasanaku,” “six-participant pasanaku,” “nine-participant pasanaku,” or “twelve-participant pasanaku.” Do not describe size as a continuous range from three to twelve.
 
 ## Deployment model
 
@@ -20,7 +20,7 @@ The constructor requires `vault.asset() == asset`. Pools do not choose assets or
 A pasanaku is a `Pasanaku` struct keyed by `token_id`:
 
 - `round_assets` — per-round obligation in raw asset units
-- `participant_count` — exactly `6` or `12`
+- `participant_count` — exactly `3`, `6`, `9`, or `12`
 - `participants` — roster; after start, index `k` is the recipient of round `k`
 - `index` — next round for `tick`
 - `created` / `stale_time` — pending-pool lifetime

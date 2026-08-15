@@ -6,8 +6,9 @@ Quick lookup for constants, external API, and events. Behavior details live in t
 
 | Name                     | Value          | Meaning                    |
 | ------------------------ | -------------- | -------------------------- |
-| `_MIN_PARTICIPANT_COUNT` | `6`            | Allowed pool size          |
-| `_MAX_PARTICIPANT_COUNT` | `12`           | Allowed pool size          |
+| `_MIN_PARTICIPANT_COUNT` | `3`            | Minimum allowed pool size  |
+| `_MAX_PARTICIPANT_COUNT` | `12`           | Maximum allowed pool size  |
+| `_PARTICIPANT_COUNT_STEP`| `3`            | Allowed sizes are multiples of 3 from 3 through 12 |
 | `_MISS_PENALTY_BPS`      | `100`          | 1% miss penalty            |
 | `_BPS_PRECISION`         | `10_000`       | Basis-point denominator    |
 | `_MIN_TIME_INTERVAL`     | `28 days`      | Minimum time between ticks |

@@ -12,7 +12,7 @@ tooling, networks, and deploy commands, see `README.md`.
 
 A fixed-membership rotating savings pool identified by `token_id`.
 
-- A creator configures exactly `6` or `12` participants.
+- A creator configures exactly `3`, `6`, `9`, or `12` participants.
 - At start, the participant roster is shuffled using `block.prevrandao`
   (beacon randomness).
 - There are `N` rounds and recipient `k` is shuffled `participants[k]`.
@@ -20,8 +20,7 @@ A fixed-membership rotating savings pool identified by `token_id`.
   single immutable ERC-20 asset.
 - Membership becomes fixed when the pool starts.
 
-Say “six-participant pasanaku” or “twelve-participant pasanaku,” not “variable
-size between six and twelve.”
+Say “three-participant pasanaku,” “six-participant pasanaku,” “nine-participant pasanaku,” or “twelve-participant pasanaku,” not “any size from three to twelve.”
 
 ## Asset and vault
 
@@ -69,7 +68,7 @@ Locked or reserve shares cannot be withdrawn through these user functions.
 
 ## Pledge
 
-For `N` equal to `6` or `12`:
+For `N` equal to `3`, `6`, `9`, or `12`:
 
 ```text
 principal = round_assets * N
@@ -165,7 +164,7 @@ reflects not-created, pending, stale, ongoing, and ended states.
 
 ## Quick constants
 
-- Participant counts: `6` or `12`
+- Participant counts: `3`, `6`, `9`, or `12`
 - Miss penalty: `100` bps
 - Minimum tick interval (`_MIN_TIME_INTERVAL`): `28 days`
 - Stale bounds: `3` to `7 days`

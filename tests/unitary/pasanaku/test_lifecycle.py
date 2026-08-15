@@ -1,7 +1,13 @@
 import boa
 import pytest
 
-from tests.utils.constants import DAYS_3, DAYS_7, PASANAKU_AMOUNT_RAW
+from tests.utils.constants import (
+    DAYS_3,
+    DAYS_7,
+    INVALID_PARTICIPANT_COUNTS,
+    PASANAKU_AMOUNT_RAW,
+    PARTICIPANT_COUNTS,
+)
 from tests.utils.helpers import (
     create_and_join_all,
     create_pasanaku,
@@ -9,6 +15,7 @@ from tests.utils.helpers import (
     fund_collateral_for_users,
     generate_users,
     pledge,
+    run_all_rounds,
 )
 
 
@@ -23,7 +30,7 @@ def test_deploy_uses_one_asset_and_vault(
     assert pasanaku_contract.vault() == pasanaku_contract._immutables._VAULT
 
 
-@pytest.mark.parametrize("participant_count", [5, 7, 11, 13])
+@pytest.mark.parametrize("participant_count", INVALID_PARTICIPANT_COUNTS)
 def test_create_rejects_unsupported_participant_count(
     pasanaku_contract,
     users,
@@ -37,7 +44,7 @@ def test_create_rejects_unsupported_participant_count(
             )
 
 
-@pytest.mark.parametrize("participant_count", [6, 12])
+@pytest.mark.parametrize("participant_count", PARTICIPANT_COUNTS)
 def test_pasanaku_starts_at_configured_size(
     pasanaku_contract,
     usdc_contract,
@@ -58,6 +65,35 @@ def test_pasanaku_starts_at_configured_size(
     assert len(state.participants) == participant_count
     assert set(state.participants) == set(participants)
     assert state.started != 0
+
+
+@pytest.mark.parametrize("participant_count", PARTICIPANT_COUNTS)
+def test_all_rounds_completes_for_supported_sizes(
+    pasanaku_contract,
+    usdc_contract,
+    owner,
+    participant_count,
+):
+    participants = generate_users(participant_count)
+    token_id = create_and_join_all(
+        pasanaku_contract,
+        usdc_contract,
+        owner,
+        participants,
+        PASANAKU_AMOUNT_RAW,
+        participant_count,
+    )
+    run_all_rounds(
+        pasanaku_contract,
+        token_id,
+        participants,
+        usdc_contract,
+        owner,
+        PASANAKU_AMOUNT_RAW,
+    )
+    state = pasanaku_contract.pasanaku(token_id)
+    assert state.ended != 0
+    assert state.index == participant_count
 
 
 def test_create_and_join_lock_shares(

@@ -8,7 +8,7 @@ Understand that Pasanaku is not a bank, fees are bounded, and vault performance 
 
 ## Not a bank
 
-- You are in a fixed circle of **six or twelve** people with one asset per deployment.
+- You are in a fixed circle of **3, 6, 9, or 12** people with one asset per deployment.
 - There is **no** guarantee against vault loss, insolvency, or liquidity shortfalls.
 - The contract is not pauseable or upgradeable in the usual “admin rescue” sense — evaluate the deployment and the configured ERC-4626 vault yourself.
 - The product may be in **beta**; parameters and UX can change for new pools.

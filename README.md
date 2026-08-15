@@ -2,7 +2,7 @@
 
 Onchain rotating savings pools backed by yield-bearing ERC-4626 collateral.
 Each deployed `Pasanaku` contract supports one immutable ERC-20 asset and one
-vault. The creator chooses a six- or twelve-participant pool.
+vault. The creator chooses a three-, six-, nine-, or twelve-participant pool.
 
 `src/Pasanaku.vy` and its tests are the source of truth.
 
@@ -12,7 +12,7 @@ vault. The creator chooses a six- or twelve-participant pool.
    Pasanaku contract deposits those assets in the configured vault and credits
    the participant with vault shares.
 2. The creator calls `create_pasanaku(round_assets, participant_count)`, where
-   `participant_count` must be `6` or `12`. Joining locks enough shares to back
+   `participant_count` must be `3`, `6`, `9`, or `12`. Joining locks enough shares to back
    `pledge(round_assets, participant_count)`.
 3. The pool starts automatically when it reaches its configured size.
    Pre-start vault appreciation is returned to each depositor's free shares;
@@ -50,7 +50,7 @@ owner's yield fee.
 
 ## Pledge and misses
 
-For `N` equal to `6` or `12`:
+For `N` equal to `3`, `6`, `9`, or `12`:
 
 ```text
 principal = round_assets * N

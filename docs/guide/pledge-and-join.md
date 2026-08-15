@@ -4,7 +4,7 @@ Joining a pool converts a free-share balance into pool-locked collateral sized b
 
 ## Pledge math
 
-For `N ∈ {6, 12}`:
+For `N ∈ {3, 6, 9, 12}`:
 
 ```text
 principal = round_assets * N

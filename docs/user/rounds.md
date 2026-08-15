@@ -13,7 +13,7 @@ Complete every round: obligors deposit the per-round amount, someone ticks after
 | Recipient | One member (shuffled position for this round) | Does not owe the per-round deposit; claims the pot after tick |
 | Obligor | Everyone else | Deposits exactly the per-round amount |
 
-A six-participant circle runs six rounds; twelve runs twelve. Each member is recipient exactly once.
+A three-participant circle runs three rounds; six runs six; nine runs nine; twelve runs twelve. Each member is recipient exactly once.
 
 ## Steps
 

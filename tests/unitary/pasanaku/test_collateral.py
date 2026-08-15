@@ -1,6 +1,11 @@
 import boa
+import pytest
 
-from tests.utils.constants import PASANAKU_AMOUNT_RAW
+from tests.utils.constants import (
+    INVALID_PARTICIPANT_COUNTS,
+    PASANAKU_AMOUNT_RAW,
+    PARTICIPANT_COUNTS,
+)
 from tests.utils.helpers import create_pasanaku, pledge
 
 
@@ -106,7 +111,22 @@ def test_locked_shares_cannot_be_withdrawn(
             pasanaku_contract.withdraw(free_assets + 1, alice)
 
 
-def test_pledge_uses_configured_participant_count(pasanaku_contract):
+@pytest.mark.parametrize("participant_count", PARTICIPANT_COUNTS)
+def test_pledge_uses_configured_participant_count(
+    pasanaku_contract,
+    participant_count,
+):
     amount = PASANAKU_AMOUNT_RAW
-    assert pasanaku_contract.pledge(amount, 6) == pledge(amount, 6)
-    assert pasanaku_contract.pledge(amount, 12) == pledge(amount, 12)
+    assert pasanaku_contract.pledge(amount, participant_count) == pledge(
+        amount,
+        participant_count,
+    )
+
+
+@pytest.mark.parametrize("participant_count", INVALID_PARTICIPANT_COUNTS)
+def test_pledge_rejects_unsupported_participant_count(
+    pasanaku_contract,
+    participant_count,
+):
+    with boa.reverts(dev="invalid participant count"):
+        pasanaku_contract.pledge(PASANAKU_AMOUNT_RAW, participant_count)

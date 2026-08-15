@@ -1,6 +1,6 @@
 # Getting started
 
-Get set up to join or create an onchain pasanaku — a fixed circle of six or twelve people who take turns receiving the pot.
+Get set up to join or create an onchain pasanaku — a fixed circle of three, six, nine, or twelve people who take turns receiving the pot.
 
 ## Goal
 
@@ -21,7 +21,7 @@ Each deployment binds one asset and one ERC-4626 vault. Pools do not pick a diff
 
 1. **Connect** your wallet and switch to Base if prompted.
 2. **Supply collateral** — deposit the asset so the protocol holds vault shares for you. See [Collateral](/user/collateral).
-3. **Create or join** — pick six or twelve participants and a per-round amount, or join an open pool. See [Create and join](/user/create-and-join).
+3. **Create or join** — pick 3, 6, 9, or 12 participants and a per-round amount, or join an open pool. See [Create and join](/user/create-and-join).
 4. **Run rounds** — obligors deposit each round; anyone can tick after at least 28 days; the recipient claims the pot. See [Rounds](/user/rounds).
 5. **Settle at the end** — principal returns and vault surplus is shared by payout position. See [Yield and end](/user/yield-and-end).
 
