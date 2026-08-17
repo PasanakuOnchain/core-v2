@@ -531,9 +531,7 @@ def join_pasanaku(token_id: uint256):
 
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started == 0  # dev: pasanaku already started
-    assert (
-        block.timestamp < pasanaku.created + pasanaku.stale_time
-    )  # dev: pasanaku is stale
+    assert block.timestamp < pasanaku.created + pasanaku.stale_time  # dev: pasanaku is stale # nosplit
     assert msg.sender not in pasanaku.participants  # dev: participant already joined
     assert len(pasanaku.participants) < pasanaku.participant_count  # dev: pasanaku full
 
@@ -568,9 +566,7 @@ def leave_pasanaku(token_id: uint256):
 
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert pasanaku.started == 0  # dev: pasanaku already started
-    assert (
-        pasanaku.created + pasanaku.stale_time <= block.timestamp
-    )  # dev: pasanaku is not stale
+    assert pasanaku.created + pasanaku.stale_time <= block.timestamp  # dev: pasanaku is not stale # nosplit
     assert msg.sender in pasanaku.participants  # dev: participant not in pasanaku
 
     locked: uint256 = self._locked_shares[token_id][msg.sender]
@@ -651,8 +647,10 @@ def claim_round_payout(token_id: uint256, round_idx: uint256):
     @param round_idx The zero-based round index to claim.
     """
     assert token_id < self._counter  # dev: invalid token id
+
     pasanaku: Pasanaku = self._pasanakus[token_id]
     assert round_idx < pasanaku.participant_count  # dev: invalid round
+
     recipient: address = pasanaku.participants[round_idx]
     assert msg.sender == recipient  # dev: not recipient
 
@@ -963,9 +961,7 @@ def _pledge(round_assets: uint256, participant_count: uint256) -> uint256:
     @return The required collateral amount denominated in underlying assets.
     """
     principal: uint256 = round_assets * participant_count
-    penalties: uint256 = (
-        principal * _MISS_PENALTY_BPS // _BPS_PRECISION
-    )
+    penalties: uint256 = principal * _MISS_PENALTY_BPS // _BPS_PRECISION
     return principal + penalties
 
 
