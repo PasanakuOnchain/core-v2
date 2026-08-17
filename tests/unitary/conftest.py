@@ -1,8 +1,8 @@
 import boa
 import pytest
 
-from src import Pasanaku as pasanaku
-from tests.mocks import erc20_mock, erc4626_mock
+from src import Pasanaku as pasanaku  # type: ignore
+from tests.mocks import erc20_mock, erc4626_mock  # type: ignore
 from tests.utils.constants import (
     MAX_YIELD_FEE,
     PASANAKU_AMOUNT_RAW,

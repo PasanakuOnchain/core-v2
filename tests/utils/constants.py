@@ -25,4 +25,6 @@ BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 BASE_FLUID_FUSDC = "0xf42f5795D9ac7e9D757dB633D693cD548Cfd9169"
 
 URI_INVALID = "ipfs://bafybeicxb3jsthydawpjye7arof5cjtqflnmpe6o3dln6yoqpwbf7hnsxa/pasanaku-invalid.png"
-URI_VALID = "ipfs://bafybeicxb3jsthydawpjye7arof5cjtqflnmpe6o3dln6yoqpwbf7hnsxa/pasanaku.png"
+URI_VALID = (
+    "ipfs://bafybeicxb3jsthydawpjye7arof5cjtqflnmpe6o3dln6yoqpwbf7hnsxa/pasanaku.png"
+)
