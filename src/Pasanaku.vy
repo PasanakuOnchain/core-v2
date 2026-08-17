@@ -1,11 +1,11 @@
-# pragma version ~=0.4.3
+# pragma version ==0.4.3
 # pragma nonreentrancy on
 """
 @title Pasanaku
 @custom:contract-name pasanaku
 @notice Collateral-backed rotating savings pools using ERC-4626 shares.
-@license GNU Affero General Public License v3.0 only
 @author rafael-abuawad
+@license GNU Affero General Public License v3.0 only
 """
 
 # @dev Underlying ERC-20 asset interface.
